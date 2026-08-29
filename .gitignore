@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Log data (large CSV/XML files — keep in local directories, not in repo)
+Ta log/
+Angstrom log/
+
+# Generated documents
+*.docx
+ta_recipe_comparison.js
+
+# OS
+Thumbs.db
+.DS_Store

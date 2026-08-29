@@ -1,0 +1,2523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Angstrom Log Viewer</title>
+<style>
+  :root {
+    --bg:        #111418;
+    --panel:     #1a1f26;
+    --panel-alt: #171c23;
+    --border:    #2a3038;
+    --grid:      #1f252d;
+    --text-1:    #e2e8f0;
+    --text-2:    #a0aec0;
+    --text-3:    #718096;
+    /* machine accent — swapped at runtime when the machine changes */
+    --machine-accent:     #4fd1c5;
+    --machine-accent-rgb: 79,209,197;
+    /* series palette (union of both machines) */
+    --c-rate:    #4fd1c5;
+    --c-rate-2:  #9ceee6;
+    --c-power:   #f6ad55;
+    --c-power-2: #fcd9a4;
+    --c-thick:   #b794f4;
+    --c-thick-2: #dcc8fb;
+    --c-press:   #63b3ed;
+    --c-press-2: #aed4f7;
+    --c-temp:    #fc8181;
+    --c-temp-2:  #feb2b2;
+    --c-sput:    #f6ad55;
+    --c-sput-2:  #fcd9a4;
+    --c-flow:    #68d391;
+    --c-refl:    #b794f4;
+    --ok:        #68d391;
+    --warn:      #f6ad55;
+    --bad:       #fc8181;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--sans);
+    font-size: 14px;
+    height: 100%;
+  }
+
+  ::selection { background: rgba(var(--machine-accent-rgb),.25); }
+
+  sup { font-size: .68em; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 48px; padding: 0 24px; gap: 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .hdr-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .app-title {
+    font-size: 15px; font-weight: 600; letter-spacing: .02em;
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  }
+  .app-title .mark {
+    width: 10px; height: 10px; border-radius: 2px;
+    background: var(--machine-accent);
+    box-shadow: 0 0 8px rgba(var(--machine-accent-rgb),.5);
+    transition: background-color 120ms, box-shadow 120ms;
+  }
+
+  /* ---------- Machine toggle (segmented control) ---------- */
+  .machine-toggle {
+    display: flex; gap: 2px; padding: 2px;
+    background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .machine-toggle button {
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-3); font-family: var(--sans);
+    font-size: 12px; font-weight: 600; letter-spacing: .02em;
+    padding: 5px 12px; border-radius: 4px; white-space: nowrap;
+    transition: background-color 120ms, color 120ms;
+  }
+  .machine-toggle button:hover { color: var(--text-1); }
+  .machine-toggle button.active {
+    background: var(--machine-accent); color: #111418;
+  }
+
+  .run-picker { display: flex; align-items: center; gap: 12px; }
+  .kbd-hint { color: var(--text-3); font-size: 11px; user-select: none; white-space: nowrap; }
+  .kbd-hint kbd {
+    font-family: var(--mono); font-size: 10px;
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 5px; margin: 0 1px; background: var(--bg);
+  }
+  #runSelect {
+    appearance: none; -webkit-appearance: none;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--mono); font-size: 12.5px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 30px 6px 12px;
+    cursor: pointer; outline: none; min-width: 210px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23718096'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 11px center;
+  }
+  #runSelect:focus { border-color: var(--machine-accent); }
+  #runSelect:disabled { opacity: .45; cursor: default; }
+
+  .icon-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-3); font-size: 14px; padding: 4px 8px; cursor: pointer;
+    line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text-1); border-color: var(--machine-accent); }
+
+  /* ---------- Config modal ---------- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; width: 520px; max-width: 90vw;
+  }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px; font-weight: 600; font-size: 14px;
+  }
+  .cfg-input {
+    width: 100%; padding: 8px 12px; background: var(--bg); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 12px; outline: none;
+  }
+  .cfg-input:focus { border-color: var(--machine-accent); }
+  .cfg-error { color: var(--bad); font-size: 12px; margin-top: 6px; min-height: 18px; }
+  .cfg-btn {
+    margin-top: 12px; padding: 7px 20px; background: var(--machine-accent); color: #111418;
+    border: none; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .cfg-btn:hover { filter: brightness(1.1); }
+  .cfg-hint {
+    margin-top: 16px; padding: 12px; background: var(--bg); border-radius: 6px;
+    font-size: 11px; color: var(--text-3); line-height: 1.6;
+  }
+  .cfg-hint code { font-family: var(--mono); color: var(--text-2); }
+
+  /* ---------- Valve view ---------- */
+  .valve-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 24px; margin: 16px 24px;
+  }
+  .valve-legend {
+    display: flex; flex-wrap: wrap; gap: 12px 20px;
+    font-size: 12px; color: var(--text-2); margin-bottom: 12px;
+  }
+  .valve-legend .item { display: flex; align-items: center; gap: 6px; }
+  .valve-legend .swatch { width: 16px; height: 10px; border-radius: 2px; }
+  .valve-hint {
+    text-align: center; font-size: 11px; color: var(--text-3); margin-bottom: 8px;
+  }
+  .valve-canvas-wrap { position: relative; }
+  .valve-canvas-wrap canvas { width: 100%; display: block; }
+  .valve-canvas-wrap .overlay { position: absolute; top: 0; left: 0; }
+
+  /* ---------- Tabs ---------- */
+  nav.tabs {
+    display: flex; gap: 4px; padding: 0 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.tabs button {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-2); font-family: var(--sans); font-size: 13px;
+    padding: 11px 14px 9px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 120ms, border-bottom-color 120ms;
+  }
+  nav.tabs button:hover { color: var(--text-1); }
+  nav.tabs button.active { color: var(--machine-accent); border-bottom-color: var(--machine-accent); }
+
+  /* ---------- Views ---------- */
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .view { display: none; }
+  .view.active { display: block; animation: fadeIn 120ms ease-out; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .center-msg {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 260px; color: var(--text-3); gap: 12px; text-align: center;
+  }
+  .center-msg .big { font-size: 28px; color: var(--ok); }
+  .center-msg .err { color: var(--bad); }
+
+  .unit { font-size: .75em; opacity: .5; margin-left: .35em; }
+  .mono { font-family: var(--mono); }
+
+  /* ---------- Summary ---------- */
+  .run-info-bar {
+    display: flex; flex-wrap: wrap; gap: 24px 40px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 24px; margin-bottom: 24px;
+  }
+  .run-info-bar .metric .m-label { margin-bottom: 2px; }
+
+  .timeline { position: relative; padding-left: 30px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 8px; top: 14px; bottom: 14px;
+    width: 1px; background: var(--border);
+  }
+  .layer-card, .phase-card {
+    position: relative;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 24px; margin-bottom: 16px;
+    display: flex; gap: 32px; align-items: flex-start;
+    transition: border-color 120ms;
+  }
+  .layer-card.clickable, .phase-card.clickable { cursor: pointer; }
+  .layer-card.clickable:hover, .phase-card.clickable:hover { border-color: var(--machine-accent); }
+  .layer-card .tl-dot, .phase-card .tl-dot {
+    position: absolute; left: -26px; top: 30px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--text-3);
+  }
+  /* JJ evaporator card variants */
+  .layer-card.dep.mat-ti  { border-left: 3px solid var(--c-power); }
+  .layer-card.dep.mat-ti .tl-dot { border-color: var(--c-power); }
+  .layer-card.dep.mat-al  { border-left: 3px solid var(--c-thick); }
+  .layer-card.dep.mat-al .tl-dot { border-color: var(--c-thick); }
+  .layer-card.ox  { background: var(--panel-alt); border-left: 3px solid var(--c-press); }
+  .layer-card.ox .tl-dot { border-color: var(--c-press); }
+  .layer-card.etch { background: var(--panel-alt); border-left: 3px solid var(--bad); }
+  .layer-card.etch .tl-dot { border-color: var(--bad); }
+  /* Ta sputterer card variants */
+  .phase-card.ph-heat { border-left: 3px solid var(--c-temp); }
+  .phase-card.ph-heat .tl-dot { border-color: var(--c-temp); }
+  .phase-card.ph-sput { border-left: 3px solid var(--c-sput); }
+  .phase-card.ph-sput .tl-dot { border-color: var(--c-sput); }
+  .phase-card.ph-cool { background: var(--panel-alt); border-left: 3px solid var(--c-press); }
+  .phase-card.ph-cool .tl-dot { border-color: var(--c-press); }
+
+  .lc-head { width: 190px; flex-shrink: 0; }
+  .layer-card .lc-head { width: 172px; }
+  .lc-name { font-size: 14px; font-weight: 600; }
+  .lc-mat  { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+  .lc-tag {
+    display: inline-block; margin-top: 8px;
+    font-size: 9.5px; letter-spacing: .09em;
+    border: 1px solid; border-radius: 3px;
+    padding: 2px 6px;
+  }
+  .lc-tag.ox   { color: var(--c-press); border-color: rgba(99,179,237,.35); }
+  .lc-tag.etch { color: var(--bad); border-color: rgba(252,129,129,.35); }
+  .lc-tag.heat { color: var(--c-temp); border-color: rgba(252,129,129,.35); }
+  .lc-tag.sput { color: var(--c-sput); border-color: rgba(246,173,85,.35); }
+  .lc-tag.cool { color: var(--c-press); border-color: rgba(99,179,237,.35); }
+
+  .cal { position: absolute; top: 10px; right: 12px; }
+  .cal summary {
+    list-style: none; cursor: pointer;
+    font: 600 9px/1 var(--sans); letter-spacing: .08em;
+    color: var(--text-3); border: 1px solid var(--border);
+    border-radius: 3px; padding: 3px 6px;
+  }
+  .cal summary::-webkit-details-marker { display: none; }
+  .cal[open] summary, .cal summary:hover { color: var(--text-2); border-color: #3a424c; }
+  .cal-pop {
+    position: absolute; right: 0; top: 22px; z-index: 5;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 10px; font: 11px/1.7 var(--mono);
+    color: var(--text-2); white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  }
+  .cal-mat {
+    color: var(--text-1); font-family: var(--sans); font-weight: 600;
+    font-size: 11px; margin-bottom: 4px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-lbl {
+    color: var(--text-3); font-size: 9px; letter-spacing: .08em; margin-right: 6px;
+  }
+  .lc-metrics { display: flex; flex-wrap: wrap; gap: 8px 36px; flex: 1; }
+  .metric { min-width: 92px; }
+  .m-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; letter-spacing: .02em; }
+  .m-value { font-family: var(--mono); font-size: 16px; color: var(--text-1); white-space: nowrap; }
+  .m-value .arr { color: var(--text-3); font-size: 12px; margin: 0 4px; }
+  .m-delta { font-family: var(--mono); font-size: 11px; margin-top: 4px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .m-delta .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .m-delta.ok   { color: var(--ok); }   .m-delta.ok .dot   { background: var(--ok); }
+  .m-delta.warn { color: var(--warn); } .m-delta.warn .dot { background: var(--warn); }
+  .m-delta.bad  { color: var(--bad); }  .m-delta.bad .dot  { background: var(--bad); }
+
+  /* ---------- Time series ---------- */
+  .chart-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 8px 8px; position: relative;
+  }
+  .chart-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 20px;
+    padding: 0 16px 10px 64px; font-size: 12px; color: var(--text-2);
+  }
+  .chart-legend .item { display: flex; align-items: center; gap: 7px; }
+  .chart-hint {
+    position: absolute; top: 18px; right: 20px;
+    font-size: 11px; color: var(--text-3); user-select: none;
+  }
+  .ts-panel { position: relative; }
+  .ts-panel canvas { display: block; width: 100%; }
+  .ts-panel canvas.overlay { position: absolute; left: 0; top: 0; }
+
+  #tsTooltip {
+    position: fixed; z-index: 50; pointer-events: none; display: none;
+    background: rgba(17,20,24,.96); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: var(--mono); font-size: 11px; line-height: 1.7;
+    box-shadow: 0 4px 16px rgba(0,0,0,.5); white-space: nowrap;
+  }
+  #tsTooltip .tt-time { color: var(--text-1); border-bottom: 1px solid var(--border); padding-bottom: 3px; margin-bottom: 4px; }
+  #tsTooltip .tt-phase { color: var(--text-3); font-family: var(--sans); font-size: 10.5px; }
+  #tsTooltip .row { display: flex; justify-content: space-between; gap: 16px; color: var(--text-2); }
+  #tsTooltip .row .val { color: var(--text-1); }
+  #tsTooltip .sw { display: inline-block; width: 8px; height: 3px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
+
+  /* ---------- Comparison ---------- */
+  .cmp-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 24px 12px;
+  }
+  .cmp-bar-label {
+    font: 600 11px/1 var(--sans); letter-spacing: .08em;
+    color: var(--text-3);
+  }
+  .cmp-dropdown { position: relative; }
+  .cmp-trigger {
+    font-family: var(--mono); font-size: 12px; padding: 6px 32px 6px 12px;
+    background: var(--bg); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; min-width: 200px; text-align: left;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23718096'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 11px center;
+  }
+  .cmp-trigger:hover { border-color: var(--machine-accent); }
+  .cmp-menu {
+    display: none; position: absolute; top: 100%; left: 0; z-index: 20;
+    margin-top: 4px; min-width: 260px; max-height: 360px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); overflow: hidden;
+  }
+  .cmp-menu.open { display: block; }
+  .cmp-menu-actions {
+    display: flex; gap: 12px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cmp-menu-actions button {
+    background: none; border: none; color: var(--machine-accent);
+    font-size: 11px; cursor: pointer; font-family: var(--sans);
+  }
+  .cmp-menu-actions button:hover { text-decoration: underline; }
+  .cmp-menu-list {
+    overflow-y: auto; max-height: 300px; padding: 4px 0;
+  }
+  .cmp-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px; cursor: pointer; font-size: 12px;
+  }
+  .cmp-menu-item:hover { background: rgba(var(--machine-accent-rgb),.08); }
+  .cmp-menu-item input[type="checkbox"] {
+    accent-color: var(--machine-accent); cursor: pointer;
+  }
+  .cmp-menu-item .run-date { font-family: var(--mono); color: var(--text-1); }
+  .cmp-menu-item .run-flag { color: var(--warn); font-size: 11px; margin-left: 4px; }
+  .cmp-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  table.cmp { border-collapse: collapse; width: 100%; min-width: 760px; }
+  table.cmp th, table.cmp td { padding: 8px 14px; font-size: 12.5px; }
+  table.cmp thead th {
+    text-align: right; font-family: var(--mono); font-weight: 500; font-size: 12px;
+    color: var(--text-2); border-bottom: 1px solid var(--border);
+    padding-top: 14px; padding-bottom: 10px; white-space: nowrap;
+  }
+  table.cmp thead th:first-child, table.cmp thead th:nth-child(2) { text-align: left; }
+  table.cmp td.name { color: var(--text-2); white-space: nowrap; }
+  table.cmp td.name .tgt { color: var(--text-3); font-size: 10.5px; margin-top: 1px; }
+  table.cmp td.spark { width: 92px; }
+  table.cmp td.val {
+    font-family: var(--mono); text-align: right; color: var(--text-1); white-space: nowrap;
+    border-left: 2px solid transparent;
+  }
+  table.cmp td.val.anom1 { border-left-color: var(--warn); background: rgba(246,173,85,.05); }
+  table.cmp td.val.anom2 { border-left-color: var(--bad);  background: rgba(252,129,129,.06); }
+  table.cmp tr.grp td {
+    background: var(--panel-alt); color: var(--text-2); font-weight: 600; font-size: 12px;
+    letter-spacing: .02em; cursor: pointer; user-select: none;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  table.cmp tr.grp td .caret { display: inline-block; width: 14px; color: var(--text-3); transition: transform 120ms; }
+  table.cmp tr.grp.collapsed td .caret { transform: rotate(-90deg); }
+  table.cmp tr.mrow { border-bottom: 1px solid var(--grid); }
+  table.cmp tr.mrow:hover td { background: rgba(226,232,240,.025); }
+  table.cmp tr.mrow.hidden { display: none; }
+  .cmp-note { color: var(--text-3); font-size: 11.5px; margin-top: 12px; padding-left: 2px; }
+  .cmp-note .chip { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 5px 0 14px; vertical-align: baseline; }
+
+  /* ---------- Recipe diff ---------- */
+  .rd-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .rd-summary { font-size: 14px; color: var(--text-2); }
+  .rd-summary strong { color: var(--text-1); font-family: var(--mono); }
+  .rd-toggle { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; cursor: pointer; user-select: none; }
+  .rd-toggle input { accent-color: var(--machine-accent); cursor: pointer; }
+  .rd-group { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .rd-group h3 {
+    font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--text-2);
+    padding: 12px 24px; background: var(--panel-alt); border-bottom: 1px solid var(--border);
+  }
+  .rd-row {
+    display: grid; grid-template-columns: minmax(220px, 1.2fr) 1fr auto 1fr;
+    gap: 16px; align-items: baseline;
+    padding: 9px 24px; border-bottom: 1px solid var(--grid);
+  }
+  .rd-row:last-child { border-bottom: none; }
+  .rd-param { color: var(--text-2); font-size: 12.5px; }
+  .rd-orig, .rd-new { font-family: var(--mono); font-size: 12.5px; }
+  .rd-orig { color: var(--text-3); text-align: right; }
+  .rd-arrow { color: var(--text-3); font-size: 12px; }
+  .rd-new { color: var(--text-2); }
+  .rd-row.changed .rd-orig { text-decoration: line-through; text-decoration-color: rgba(252,129,129,.6); }
+  .rd-row.changed .rd-new { color: var(--machine-accent); font-weight: 600; }
+  .rd-row.changed .rd-param { color: var(--text-1); }
+
+  @media (max-width: 900px) {
+    .layer-card, .phase-card { flex-direction: column; gap: 16px; }
+    .lc-head, .layer-card .lc-head { width: auto; }
+    .kbd-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-left">
+    <div class="app-title"><span class="mark"></span>Angstrom Log Viewer</div>
+    <div class="machine-toggle" id="machineToggle" role="tablist" aria-label="Select machine"></div>
+  </div>
+  <div class="run-picker">
+    <span class="kbd-hint"><kbd>[</kbd><kbd>]</kbd> step runs</span>
+    <select id="runSelect" aria-label="Select run"></select>
+    <button id="btnConfig" class="icon-btn" title="Set log directory">⚙</button>
+  </div>
+</header>
+
+<div id="configModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-head"><span>Log directory</span><button id="btnCloseModal" class="icon-btn">✕</button></div>
+    <input type="text" id="cfgDirInput" class="cfg-input" spellcheck="false">
+    <div id="cfgError" class="cfg-error"></div>
+    <button id="btnSetDir" class="cfg-btn">Set directory</button>
+    <div class="cfg-hint">
+      Expected layout:<br>
+      <code>&lt;log-dir&gt;/<br>
+      &nbsp;&nbsp;CQtm_&lt;Recipe&gt;-&lt;user&gt;_YYYYMMDD_HHMMSS/<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;*.csv, *_details.json,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;*_Original_*.xml, *_Complete_*.xml</code>
+    </div>
+  </div>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="summary" class="active">Summary</button>
+  <button data-tab="timeseries">Time Series</button>
+  <button data-tab="comparison">Comparison</button>
+  <button data-tab="recipe">Recipe Diff</button>
+  <button data-tab="valves">Valves</button>
+</nav>
+
+<main>
+  <section id="view-summary" class="view active"></section>
+  <section id="view-timeseries" class="view"></section>
+  <section id="view-comparison" class="view"></section>
+  <section id="view-recipe" class="view"></section>
+  <section id="view-valves" class="view"></section>
+</main>
+
+<div id="tsTooltip"></div>
+
+<script>
+'use strict';
+
+/* ======================================================================
+ *  1. Machine registry
+ *  Each machine registers its rendering strategy here: time-series
+ *  panels, valve lanes, comparison groups and a summary renderer.
+ *  The toggle itself is populated from /api/machines so new machines
+ *  added on the backend automatically appear.
+ * ====================================================================== */
+
+const MACHINE_DEFS = {};   // filled by the per-machine modules below
+
+/* ================= state & cache ================= */
+
+const state = {
+  machine: null,         // current machine id ('jj', 'ta', …)
+  machines: [],          // [{id, name, accent}] from /api/machines
+  tab: 'summary',
+  runId: null,
+  runs: [],
+  showAllParams: false,
+  pendingZoomSeg: null,  // layer / phase number to zoom to in Time Series
+  collapsedGroups: new Set(),
+  cmpSelectedIds: new Set(),
+};
+
+const cache = {
+  summary: new Map(),
+  ts: new Map(),
+  diff: new Map(),
+  comparison: null,
+  valves: new Map(),
+};
+
+function clearCaches() {
+  cache.summary.clear(); cache.ts.clear(); cache.diff.clear(); cache.valves.clear();
+  cache.comparison = null;
+}
+
+let activeChart = null;
+let activeValveChart = null;
+
+function api(path) { return `/api/${state.machine}${path}`; }
+function machineDef() { return MACHINE_DEFS[state.machine] || null; }
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} — ${url}`);
+  return r.json();
+}
+
+/* ================= formatting ================= */
+
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const isOn = v => v === true || v === 1;
+
+function hexToRGB(hex) {
+  let h = String(hex).replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const n = parseInt(h, 16);
+  if (!isFinite(n)) return '79,209,197';
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function sciParts(v, digits = 1) {
+  let e = Math.floor(Math.log10(Math.abs(v)));
+  let m = v / Math.pow(10, e);
+  if (Math.abs(Number(m.toFixed(digits))) >= 10) { m /= 10; e += 1; }
+  return [m.toFixed(digits), e];
+}
+
+function sciHTML(v, digits = 1) {
+  if (v === 0) return '0';
+  const [m, e] = sciParts(v, digits);
+  return `${m}×10<sup>${e}</sup>`;
+}
+
+function sciText(v, digits = 1) {
+  if (v === 0) return '0';
+  const [m, e] = sciParts(v, digits);
+  return `${m}e${e}`;
+}
+
+// value HTML by unit — small magnitudes go scientific
+function fmtVal(v, unit) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) > 0 && Math.abs(v) < 0.01) return sciHTML(v);
+  switch (unit) {
+    case 'Å':    return v.toFixed(1);
+    case 'Å/s':  return v.toFixed(2);
+    case 'Torr': return v.toFixed(2);
+    case '%':    return v.toFixed(2);
+    case 's':    return v.toFixed(1);
+    case '°C':   return v.toFixed(0);
+    case 'W':    return v.toFixed(1);
+    case 'V':    return v.toFixed(1);
+    case 'mA':   return v.toFixed(0);
+    case 'sccm': return v.toFixed(1);
+    default:     return v.toFixed(2);
+  }
+}
+
+function fmtDur(sec) {
+  if (sec == null || !isFinite(sec)) return '—';
+  const s = Math.round(sec);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`;
+}
+
+function withUnit(html, unit) {
+  return `${html}<span class="unit">${esc(unit)}</span>`;
+}
+
+function metricHTML(label, valueHTML, extra = '') {
+  return `<div class="metric"><div class="m-label">${label}</div><div class="m-value">${valueHTML}</div>${extra}</div>`;
+}
+
+// signed delta + status class:  |Δ|/target ≤2% ok, ≤5% warn, else bad
+function deltaHTML(actual, target, unit, decimals) {
+  if (actual == null || target == null || !isFinite(actual) || !isFinite(target)) return '';
+  const d = actual - target;
+  const pct = target !== 0 ? Math.abs(d / target) * 100 : Math.abs(d) * 100;
+  const cls = pct <= 2 ? 'ok' : pct <= 5 ? 'warn' : 'bad';
+  const sign = d >= 0 ? '+' : '−';
+  const mag = Math.abs(d);
+  let txt = mag.toFixed(decimals);
+  if (Number(txt) === 0 && mag > 0) txt = sciText(mag);   // too small for fixed digits
+  return `<div class="m-delta ${cls}"><span class="dot"></span>${sign}${txt} ${esc(unit)}</div>`;
+}
+
+/* ================= views & boot helpers ================= */
+
+const views = {
+  summary:    document.getElementById('view-summary'),
+  timeseries: document.getElementById('view-timeseries'),
+  comparison: document.getElementById('view-comparison'),
+  recipe:     document.getElementById('view-recipe'),
+  valves:     document.getElementById('view-valves'),
+};
+
+function showLoading(el)      { el.innerHTML = '<div class="center-msg">Loading…</div>'; }
+function showError(el, err)   { el.innerHTML = `<div class="center-msg"><span class="err">Failed to load data</span><span style="font-family:var(--mono);font-size:11.5px">${esc(err.message || err)}</span></div>`; }
+
+const runSelect = document.getElementById('runSelect');
+
+function runOptionHTML(r) {
+  return `<option value="${esc(r.id)}">${esc(r.date)}  ${esc(r.time)}${r.complete ? '' : '  ⚠ incomplete'}</option>`;
+}
+
+runSelect.addEventListener('change', () => {
+  state.runId = runSelect.value;
+  render();
+});
+
+// keyboard [ ] step between runs
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key !== '[' && e.key !== ']') return;
+  const i = state.runs.findIndex(r => r.id === state.runId);
+  if (i < 0) return;
+  const j = e.key === '[' ? i - 1 : i + 1;
+  if (j < 0 || j >= state.runs.length) return;
+  state.runId = state.runs[j].id;
+  runSelect.value = state.runId;
+  render();
+});
+
+// tabs
+document.getElementById('tabs').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn || btn.dataset.tab === state.tab) return;
+  setTab(btn.dataset.tab);
+});
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  Object.entries(views).forEach(([k, el]) => el.classList.toggle('active', k === tab));
+  render();
+}
+
+function render() {
+  if (!state.machine) return;
+  if (!state.runId && state.tab !== 'comparison') return;
+  switch (state.tab) {
+    case 'summary':    renderSummary();    break;
+    case 'timeseries': renderTimeseries(); break;
+    case 'comparison': renderComparison(); break;
+    case 'recipe':     renderRecipe();     break;
+    case 'valves':     renderValves();     break;
+  }
+}
+
+/* ======================================================================
+ *  2. Shared chart infrastructure
+ *  TSChart supports an optional right y-axis per panel (cfg.right) —
+ *  panels without one render exactly like the single-axis original.
+ *  All machine-specific configuration (panels, lanes, colors) comes
+ *  from the machine definition passed to the constructor.
+ * ====================================================================== */
+
+const PANEL_H = 200, FIRST_TOP = 56, TOP = 10, BOTTOM = 8;
+
+function panelSeriesAll(cfg) {
+  return cfg.right ? [...cfg.series, ...cfg.right.series] : cfg.series;
+}
+
+function niceTicks(min, max, n = 5) {
+  const span = max - min;
+  if (!(span > 0)) return [min];
+  let step = Math.pow(10, Math.floor(Math.log10(span / n)));
+  const err = span / n / step;
+  if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+  const out = [];
+  for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + step * 1e-6; v += step) out.push(v);
+  return out;
+}
+
+function lowerBound(arr, x) {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+class TSChart {
+  constructor(container, data, def) {
+    this.container = container;
+    this.data = data;
+    this.def = def;
+    this.cfgPanels = def.panels;
+    this.accentRGB = def.accentRGB;
+    this.shutterBand = def.shutterBand;
+    this.ML = 120;
+    this.MR = def.panels.some(p => p.right) ? 74 : 18;
+    this.t = data.t;
+    this.full = [this.t[0], this.t[this.t.length - 1]];
+    this.domain = this.full.slice();
+    this.dpr = window.devicePixelRatio || 1;
+    this.tooltip = document.getElementById('tsTooltip');
+    this.drag = null;
+    this.hoverX = null;
+    this.build();
+    this.resize();
+  }
+
+  build() {
+    const legendItems = this.cfgPanels.flatMap(p => panelSeriesAll(p)).map(s => {
+      const dash = s.dash ? `stroke-dasharray="4 3"` : '';
+      return `<span class="item"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="${s.color}" stroke-width="2" ${dash}/></svg>${esc(s.name)}</span>`;
+    }).join('');
+    this.vlLanes = this.def.tsLanes;
+    this.vlH = 22;
+    this.vlGap = 2;
+    this.vlTotalH = 8 + this.vlLanes.length * (this.vlH + this.vlGap) + 36;
+    this.container.innerHTML = `
+      <div class="chart-card">
+        <div class="chart-legend">${legendItems}</div>
+        <div class="chart-hint">drag to zoom · double-click to reset</div>
+        <div class="ts-panels"></div>
+        <div class="ts-panel valve-strip" style="height:${this.vlTotalH}px">
+          <canvas></canvas><canvas class="overlay"></canvas>
+        </div>
+      </div>`;
+    const panelsEl = this.container.querySelector('.ts-panels');
+    this.panels = this.cfgPanels.map((cfg, i) => {
+      const div = document.createElement('div');
+      div.className = 'ts-panel';
+      const h = PANEL_H + (i === 0 ? FIRST_TOP - TOP : 0);
+      div.style.height = h + 'px';
+      const base = document.createElement('canvas');
+      const overlay = document.createElement('canvas');
+      overlay.className = 'overlay';
+      div.appendChild(base); div.appendChild(overlay);
+      panelsEl.appendChild(div);
+      const p = { cfg, div, base, overlay, h,
+        top:    i === 0 ? FIRST_TOP : TOP,
+        bottom: BOTTOM,
+        isFirst: i === 0, isLast: false,
+        yOverride: null };
+      this.bindEvents(p);
+      return p;
+    });
+    // valve strip
+    const vsDiv = this.container.querySelector('.valve-strip');
+    const vsBase = vsDiv.querySelector('canvas:not(.overlay)');
+    const vsOv = vsDiv.querySelector('.overlay');
+    this.valvePanel = { div: vsDiv, base: vsBase, overlay: vsOv, h: this.vlTotalH };
+    this.bindEvents({ overlay: vsOv, top: 8, bottom: 36, h: this.vlTotalH, isValve: true });
+  }
+
+  sidesOf(p) { return p.cfg && p.cfg.right ? ['l', 'r'] : ['l']; }
+
+  bindEvents(p) {
+    const ov = p.overlay;
+    let yPan = null; // {startY, orig: {l:{min,max}, r?:{min,max}}}
+
+    ov.addEventListener('mousemove', e => {
+      const rect = ov.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      // y-pan: right-click drag (shifts both axes together)
+      if (yPan) {
+        const dy = e.clientY - yPan.startY;
+        const plotH = p.h - p.top - p.bottom;
+        const next = {};
+        for (const side of this.sidesOf(p)) {
+          const o = yPan.orig[side];
+          const shift = (dy / plotH) * (o.max - o.min); // drag down = shift values up
+          next[side] = { min: o.min + shift, max: o.max + shift };
+        }
+        p.yOverride = next;
+        this.redraw();
+        return;
+      }
+      if (this.drag) { this.drag.x1 = x; this.drawOverlays(); return; }
+      this.hoverX = Math.max(this.ML, Math.min(this.w - this.MR, x));
+      this.drawOverlays();
+      this.showTooltip(e.clientX, e.clientY);
+    });
+    ov.addEventListener('mouseleave', () => {
+      if (this.drag || yPan) return;
+      this.hoverX = null;
+      this.drawOverlays();
+      this.tooltip.style.display = 'none';
+    });
+    ov.addEventListener('contextmenu', e => e.preventDefault());
+    ov.addEventListener('mousedown', e => {
+      const rect = ov.getBoundingClientRect();
+      // right-click → y-pan
+      if (e.button === 2 && !p.isValve) {
+        e.preventDefault();
+        const [i0, i1] = this.visibleRange();
+        const orig = {};
+        for (const side of this.sidesOf(p)) {
+          const sc = this.yScale(p, side, i0, i1);
+          orig[side] = { min: sc.min, max: sc.max };
+        }
+        yPan = { startY: e.clientY, orig };
+        this.tooltip.style.display = 'none';
+        const up = () => {
+          document.removeEventListener('mouseup', up);
+          yPan = null;
+        };
+        document.addEventListener('mouseup', up);
+        return;
+      }
+      // left-click → x-zoom drag
+      if (e.button !== 0) return;
+      const x = e.clientX - rect.left;
+      this.drag = { x0: x, x1: x };
+      this.tooltip.style.display = 'none';
+      const up = ev => {
+        document.removeEventListener('mouseup', up);
+        if (!this.drag) return;
+        const { x0, x1 } = this.drag;
+        this.drag = null;
+        if (Math.abs(x1 - x0) >= 8) {
+          const a = this.pxToX(Math.min(x0, x1)), b = this.pxToX(Math.max(x0, x1));
+          this.setDomain([a, b]);
+        } else this.drawOverlays();
+      };
+      document.addEventListener('mouseup', up);
+    });
+    ov.addEventListener('dblclick', () => {
+      this.panels.forEach(pp => { pp.yOverride = null; });
+      this.setDomain(this.full.slice());
+    });
+    if (!p.isValve) {
+      ov.addEventListener('wheel', e => {
+        e.preventDefault();
+        const rect = ov.getBoundingClientRect();
+        const mouseY = e.clientY - rect.top;
+        const [i0, i1] = this.visibleRange();
+        const frac = (p.h - p.bottom - mouseY) / (p.h - p.top - p.bottom);
+        const factor = e.deltaY > 0 ? 1.25 : 0.8;
+        const next = {};
+        for (const side of this.sidesOf(p)) {
+          const sc = this.yScale(p, side, i0, i1);
+          const anchor = sc.min + frac * (sc.max - sc.min);
+          const newMin = anchor - (anchor - sc.min) * factor;
+          const newMax = anchor + (sc.max - anchor) * factor;
+          if (newMax - newMin < 1e-10) return;
+          next[side] = { min: newMin, max: newMax };
+        }
+        p.yOverride = next;
+        this.redraw();
+      }, { passive: false });
+    }
+  }
+
+  setDomain(d) {
+    const [f0, f1] = this.full;
+    let [a, b] = d;
+    a = Math.max(f0, a); b = Math.min(f1, b);
+    if (b - a < 1) { const c = (a + b) / 2; a = c - 0.5; b = c + 0.5; }
+    this.domain = [a, b];
+    this.redraw();
+  }
+
+  resize() {
+    this.w = this.panels[0].div.clientWidth;
+    this.dpr = window.devicePixelRatio || 1;
+    for (const p of this.panels) {
+      for (const c of [p.base, p.overlay]) {
+        c.width = Math.round(this.w * this.dpr);
+        c.height = Math.round(p.h * this.dpr);
+        c.style.width = this.w + 'px';
+        c.style.height = p.h + 'px';
+      }
+    }
+    // valve strip
+    const vp = this.valvePanel;
+    if (vp) {
+      for (const c of [vp.base, vp.overlay]) {
+        c.width = Math.round(this.w * this.dpr);
+        c.height = Math.round(vp.h * this.dpr);
+        c.style.width = this.w + 'px';
+        c.style.height = vp.h + 'px';
+      }
+    }
+    this.redraw();
+  }
+
+  xToPx(t) {
+    const [a, b] = this.domain;
+    return this.ML + (t - a) / (b - a) * (this.w - this.ML - this.MR);
+  }
+  pxToX(px) {
+    const [a, b] = this.domain;
+    return a + (px - this.ML) / (this.w - this.ML - this.MR) * (b - a);
+  }
+
+  visibleRange() {
+    const i0 = Math.max(0, lowerBound(this.t, this.domain[0]) - 1);
+    const i1 = Math.min(this.t.length - 1, lowerBound(this.t, this.domain[1]) + 1);
+    return [i0, i1];
+  }
+
+  redraw() {
+    const [i0, i1] = this.visibleRange();
+    for (const p of this.panels) this.drawPanel(p, i0, i1);
+    this.drawValvePanel(i0, i1);
+    this.drawOverlays();
+  }
+
+  drawValvePanel(i0, i1) {
+    const vp = this.valvePanel;
+    if (!vp) return;
+    const ctx = vp.base.getContext('2d');
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, this.w, vp.h);
+    const VL = this.ML;
+    const plotW = this.w - VL - this.MR;
+    if (plotW <= 10) return;
+    const lanes = this.vlLanes;
+    const lH = this.vlH, gap = this.vlGap;
+    const topY = 8, botY = topY + lanes.length * (lH + gap);
+    const sansFont = getComputedStyle(document.body).getPropertyValue('--sans');
+    const monoFont = getComputedStyle(document.body).getPropertyValue('--mono');
+
+    // helper: convert time to x using the valve-strip margins
+    const vxToPx = t => {
+      const [a, b] = this.domain;
+      return VL + (t - a) / (b - a) * plotW;
+    };
+
+    // phase bands
+    const bounds = this.data.phase_boundaries || [];
+    const edges = [this.full[0], ...bounds.map(b => b.t), this.full[1]];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(VL, topY, plotW, botY - topY); ctx.clip();
+    for (let k = 0; k < edges.length - 1; k++) {
+      if (k % 2 === 0) continue;
+      const x0 = vxToPx(edges[k]), x1 = vxToPx(edges[k + 1]);
+      if (x1 < VL || x0 > this.w - this.MR) continue;
+      ctx.fillStyle = 'rgba(226,232,240,0.03)';
+      ctx.fillRect(x0, topY, x1 - x0, botY - topY);
+    }
+    // boolean lanes
+    for (let li = 0; li < lanes.length; li++) {
+      const lane = lanes[li];
+      const arr = this.data[lane.k];
+      if (!arr) continue;
+      const y0 = topY + li * (lH + gap);
+      ctx.fillStyle = lane.color + '88';
+      let runStart = null;
+      for (let i = i0; i <= i1 + 1; i++) {
+        const open = i <= i1 && isOn(arr[i]);
+        if (open && runStart === null) runStart = i;
+        else if (!open && runStart !== null) {
+          const x0 = vxToPx(this.t[runStart]);
+          const x1 = vxToPx(this.t[i - 1]);
+          ctx.fillRect(Math.max(x0, VL), y0 + 1, Math.max(x1 - x0, 1), lH - 2);
+          runStart = null;
+        }
+      }
+    }
+    ctx.restore();
+
+    // phase boundary lines
+    for (const b of bounds) {
+      const x = vxToPx(b.t);
+      if (x < VL || x > this.w - this.MR) continue;
+      ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(x, topY); ctx.lineTo(x, botY); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // lane labels (right-aligned to VL with padding)
+    ctx.font = '10px ' + sansFont;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let li = 0; li < lanes.length; li++) {
+      const y0 = topY + li * (lH + gap);
+      ctx.fillStyle = lanes[li].color;
+      ctx.fillRect(VL - 10, y0 + lH / 2 - 2, 4, 4);
+      ctx.fillStyle = '#a0aec0';
+      ctx.fillText(lanes[li].name, VL - 16, y0 + lH / 2);
+    }
+
+    // lane separators
+    for (let li = 0; li < lanes.length; li++) {
+      const y = topY + li * (lH + gap) + lH;
+      ctx.strokeStyle = '#1f252d'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(VL, y); ctx.lineTo(this.w - this.MR, y); ctx.stroke();
+    }
+
+    // frame
+    ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+    ctx.strokeRect(VL + .5, topY + .5, plotW - 1, botY - topY - 1);
+
+    // x axis
+    const xt = niceTicks(this.domain[0], this.domain[1], Math.max(4, Math.floor(plotW / 110)));
+    ctx.font = '10px ' + monoFont;
+    ctx.fillStyle = '#718096';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (const tv of xt) {
+      const x = vxToPx(tv);
+      if (x < VL - 1 || x > this.w - this.MR + 1) continue;
+      ctx.strokeStyle = '#2a3038';
+      ctx.beginPath(); ctx.moveTo(x, botY); ctx.lineTo(x, botY + 5); ctx.stroke();
+      ctx.fillText(fmtDur(tv), x, botY + 9);
+    }
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#718096';
+    ctx.font = '10px ' + sansFont;
+    ctx.fillText('elapsed time', this.w - this.MR, botY + 22);
+  }
+
+  yScale(p, side, i0, i1) {
+    const cfg = side === 'r' ? p.cfg.right : p.cfg;
+    const isLog = !!cfg.log;
+    let min, max;
+    const ovr = p.yOverride && p.yOverride[side];
+    if (ovr) {
+      min = ovr.min;
+      max = ovr.max;
+    } else {
+      min = Infinity; max = -Infinity;
+      for (const s of cfg.series) {
+        const arr = this.data[s.k];
+        if (!arr) continue;
+        for (let i = i0; i <= i1; i++) {
+          let v = arr[i];
+          if (v == null || v !== v) continue;
+          if (isLog) { if (v <= 0) continue; v = Math.log10(v); }
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      if (min === Infinity) { min = 0; max = 1; }
+      if (min === max) { min -= 1; max += 1; }
+      const pad = (max - min) * 0.07;
+      min -= pad; max += pad;
+      if (!isLog && min < 0) min = 0;   // physical signals are >= 0
+    }
+    return { min, max, log: isLog,
+      y: v => p.h - p.bottom - (v - min) / (max - min) * (p.h - p.top - p.bottom) };
+  }
+
+  drawPanel(p, i0, i1) {
+    const ctx = p.base.getContext('2d');
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, this.w, p.h);
+    const plotW = this.w - this.ML - this.MR;
+    if (plotW <= 10) return;
+    const scL = this.yScale(p, 'l', i0, i1);
+    const scR = p.cfg.right ? this.yScale(p, 'r', i0, i1) : null;
+    const topY = p.top, botY = p.h - p.bottom;
+    const sansFont = getComputedStyle(document.body).getPropertyValue('--sans');
+    const monoFont = getComputedStyle(document.body).getPropertyValue('--mono');
+
+    // --- alternating phase bands ---
+    const bounds = this.data.phase_boundaries || [];
+    const edges = [this.full[0], ...bounds.map(b => b.t), this.full[1]];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(this.ML, topY, plotW, botY - topY); ctx.clip();
+    for (let k = 0; k < edges.length - 1; k++) {
+      if (k % 2 === 0) continue;
+      const x0 = this.xToPx(edges[k]), x1 = this.xToPx(edges[k + 1]);
+      if (x1 < this.ML || x0 > this.w - this.MR) continue;
+      ctx.fillStyle = 'rgba(226,232,240,0.03)';
+      ctx.fillRect(x0, topY, x1 - x0, botY - topY);
+    }
+    ctx.restore();
+
+    // --- substrate-shutter-open bands (deposition window, behind data) ---
+    const shutter = this.data.shutter;
+    if (shutter && shutter.length) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(this.ML, topY, plotW, botY - topY); ctx.clip();
+      ctx.fillStyle = this.shutterBand;
+      let runStart = null;
+      for (let i = i0; i <= i1 + 1; i++) {
+        const open = i <= i1 && isOn(shutter[i]);
+        if (open && runStart === null) {
+          runStart = i;
+        } else if (!open && runStart !== null) {
+          const x0 = this.xToPx(this.t[runStart]);
+          const x1 = this.xToPx(this.t[i - 1]);
+          if (!(x1 < this.ML || x0 > this.w - this.MR)) {
+            ctx.fillRect(x0, topY, Math.max(x1 - x0, 1), botY - topY);
+          }
+          runStart = null;
+        }
+      }
+      ctx.restore();
+    }
+
+    // --- horizontal grid + left y ticks ---
+    ctx.font = '10px ' + monoFont;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    let ticks;
+    if (scL.log) {
+      ticks = [];
+      for (let e = Math.ceil(scL.min); e <= Math.floor(scL.max); e++) ticks.push(e);
+      if (ticks.length < 2) ticks = niceTicks(scL.min, scL.max, 4);
+    } else {
+      ticks = niceTicks(scL.min, scL.max, 4);
+    }
+    for (const tv of ticks) {
+      const y = scL.y(tv);
+      if (y < topY - 1 || y > botY + 1) continue;
+      ctx.strokeStyle = '#1f252d'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(this.ML, y); ctx.lineTo(this.w - this.MR, y); ctx.stroke();
+      ctx.fillStyle = '#718096';
+      const lbl = scL.log
+        ? (Number.isInteger(tv) ? `1e${tv}` : sciText(Math.pow(10, tv), 1))
+        : (Math.abs(tv) >= 1000 ? tv.toFixed(0) : +tv.toPrecision(4) + '');
+      ctx.fillText(lbl, this.ML - 8, y);
+    }
+
+    // --- right y ticks (no grid lines — right axis is secondary) ---
+    if (scR) {
+      let rticks;
+      if (scR.log) {
+        rticks = [];
+        for (let e = Math.ceil(scR.min); e <= Math.floor(scR.max); e++) rticks.push(e);
+        if (rticks.length < 2) rticks = niceTicks(scR.min, scR.max, 4);
+      } else {
+        rticks = niceTicks(scR.min, scR.max, 4);
+      }
+      ctx.font = '10px ' + monoFont;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      for (const tv of rticks) {
+        const y = scR.y(tv);
+        if (y < topY - 1 || y > botY + 1) continue;
+        ctx.strokeStyle = '#2a3038';
+        ctx.beginPath(); ctx.moveTo(this.w - this.MR, y); ctx.lineTo(this.w - this.MR + 4, y); ctx.stroke();
+        ctx.fillStyle = '#718096';
+        const lbl = scR.log
+          ? (Number.isInteger(tv) ? `1e${tv}` : sciText(Math.pow(10, tv), 1))
+          : (Math.abs(tv) >= 1000 ? tv.toFixed(0) : +tv.toPrecision(4) + '');
+        ctx.fillText(lbl, this.w - this.MR + 7, y);
+      }
+    }
+
+    // --- phase boundary lines + labels (labels on first panel only) ---
+    let lastLabelX = -Infinity;
+    for (const b of bounds) {
+      const x = this.xToPx(b.t);
+      if (x < this.ML || x > this.w - this.MR) continue;
+      ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(x, topY); ctx.lineTo(x, botY); ctx.stroke();
+      ctx.setLineDash([]);
+      if (p.isFirst && b.label && x - lastLabelX >= 34) {
+        ctx.save();
+        ctx.translate(x + 3, topY - 6);
+        ctx.rotate(-Math.PI / 4);
+        ctx.font = '9px ' + sansFont;
+        ctx.fillStyle = '#718096';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        let lbl = b.label;
+        if (lbl.length > 26) lbl = lbl.slice(0, 25) + '…';
+        ctx.fillText(lbl, 0, 0);
+        ctx.restore();
+        lastLabelX = x;
+      }
+    }
+
+    // --- series lines (left, then right axis) ---
+    ctx.save();
+    ctx.beginPath(); ctx.rect(this.ML, topY, plotW, botY - topY); ctx.clip();
+    const groups = [[p.cfg.series, scL]];
+    if (scR) groups.push([p.cfg.right.series, scR]);
+    for (const [series, sc] of groups) {
+      for (const s of series) {
+        const arr = this.data[s.k];
+        if (!arr) continue;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.setLineDash(s.dash || []);
+        ctx.beginPath();
+        let pen = false;
+        for (let i = i0; i <= i1; i++) {
+          let v = arr[i];
+          if (v == null || v !== v || (sc.log && v <= 0)) { pen = false; continue; }
+          if (sc.log) v = Math.log10(v);
+          const x = this.xToPx(this.t[i]), y = sc.y(v);
+          if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
+
+    // --- frame ---
+    ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+    ctx.strokeRect(this.ML + .5, topY + .5, plotW - 1, botY - topY - 1);
+
+    // --- left y-axis label (rotated) ---
+    ctx.save();
+    ctx.translate(13, (topY + botY) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '11px ' + sansFont;
+    ctx.fillStyle = '#a0aec0';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(p.cfg.label, 0, 0);
+    ctx.restore();
+
+    // --- right y-axis label (rotated) ---
+    if (p.cfg.right) {
+      ctx.save();
+      ctx.translate(this.w - 10, (topY + botY) / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.font = '11px ' + sansFont;
+      ctx.fillStyle = '#a0aec0';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(p.cfg.right.label, 0, 0);
+      ctx.restore();
+    }
+
+    // --- x axis on last panel ---
+    if (p.isLast) {
+      const xt = niceTicks(this.domain[0], this.domain[1], Math.max(4, Math.floor(plotW / 110)));
+      ctx.font = '10px ' + monoFont;
+      ctx.fillStyle = '#718096';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      for (const tv of xt) {
+        const x = this.xToPx(tv);
+        if (x < this.ML - 1 || x > this.w - this.MR + 1) continue;
+        ctx.strokeStyle = '#2a3038';
+        ctx.beginPath(); ctx.moveTo(x, botY); ctx.lineTo(x, botY + 5); ctx.stroke();
+        ctx.fillText(fmtDur(tv), x, botY + 9);
+      }
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#718096';
+      ctx.font = '10px ' + sansFont;
+      ctx.fillText('elapsed time', this.w - this.MR, botY + 22);
+    }
+  }
+
+  drawOverlays() {
+    const allPanels = this.valvePanel
+      ? [...this.panels, this.valvePanel]
+      : this.panels;
+    for (const p of allPanels) {
+      const isV = p === this.valvePanel;
+      const ctx = p.overlay.getContext('2d');
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.clearRect(0, 0, this.w, p.h);
+      const topY = isV ? 8 : p.top;
+      const botY = isV ? 8 + this.vlLanes.length * (this.vlH + this.vlGap) : p.h - p.bottom;
+      if (this.drag) {
+        const a = Math.min(this.drag.x0, this.drag.x1), b = Math.max(this.drag.x0, this.drag.x1);
+        ctx.fillStyle = `rgba(${this.accentRGB},0.10)`;
+        ctx.fillRect(a, topY, b - a, botY - topY);
+        ctx.strokeStyle = `rgba(${this.accentRGB},0.5)`;
+        ctx.beginPath(); ctx.moveTo(a + .5, topY); ctx.lineTo(a + .5, botY);
+        ctx.moveTo(b + .5, topY); ctx.lineTo(b + .5, botY); ctx.stroke();
+      } else if (this.hoverX != null) {
+        ctx.strokeStyle = 'rgba(226,232,240,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(this.hoverX + .5, topY); ctx.lineTo(this.hoverX + .5, botY); ctx.stroke();
+      }
+    }
+  }
+
+  showTooltip(cx, cy) {
+    if (this.hoverX == null) { this.tooltip.style.display = 'none'; return; }
+    const tt = this.pxToX(this.hoverX);
+    let i = lowerBound(this.t, tt);
+    if (i > 0 && (i >= this.t.length || Math.abs(this.t[i - 1] - tt) < Math.abs(this.t[i] - tt))) i--;
+    if (i < 0 || i >= this.t.length) { this.tooltip.style.display = 'none'; return; }
+
+    // phase label: last boundary at or before t
+    let phase = '';
+    const bounds = this.data.phase_boundaries || [];
+    for (const b of bounds) { if (b.t <= this.t[i]) phase = b.label || ''; else break; }
+
+    const fmtSeries = (s, isLog, v) => {
+      if (v == null || v !== v) return '—';
+      if (isLog || (Math.abs(v) > 0 && Math.abs(v) < 0.01)) return sciText(v) + (s.u ? ' ' + s.u : '');
+      return v.toFixed(s.d != null ? s.d : 2) + (s.u ? ' ' + s.u : '');
+    };
+    let rows = '';
+    for (const p of this.cfgPanels) {
+      const groups = [[p.series, !!p.log]];
+      if (p.right) groups.push([p.right.series, !!p.right.log]);
+      for (const [series, isLog] of groups) {
+        for (const s of series) {
+          const arr = this.data[s.k];
+          const vs = fmtSeries(s, isLog, arr ? arr[i] : null);
+          const dash = s.dash ? 'border-top:2px dashed ' + s.color + ';height:0;background:none;' : 'background:' + s.color + ';';
+          rows += `<div class="row"><span><span class="sw" style="${dash}"></span>${esc(s.name)}</span><span class="val">${esc(vs)}</span></div>`;
+        }
+      }
+    }
+    // spark counter (cumulative) — surfaced if the machine logs one
+    const sparks = this.data.spark_count;
+    if (sparks) {
+      const v = sparks[i];
+      rows += `<div class="row"><span><span class="sw" style="background:#718096"></span>Spark count</span><span class="val">${v != null && v === v ? esc(String(v)) : '—'}</span></div>`;
+    }
+    this.tooltip.innerHTML =
+      `<div class="tt-time">t = ${fmtDur(this.t[i])}${phase ? `<span class="tt-phase">  ·  ${esc(phase)}</span>` : ''}</div>${rows}`;
+    this.tooltip.style.display = 'block';
+    const tw = this.tooltip.offsetWidth, th = this.tooltip.offsetHeight;
+    let x = cx + 16, y = cy + 12;
+    if (x + tw > window.innerWidth - 8) x = cx - tw - 16;
+    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+    this.tooltip.style.left = x + 'px';
+    this.tooltip.style.top = y + 'px';
+  }
+
+  // zoom to a labelled segment (JJ: layer number, Ta: phase number)
+  zoomToSegment(num) {
+    const arr = this.data[this.def.zoomKey];
+    if (!arr) return;
+    let a = null, b = null;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] === num) { if (a === null) a = this.t[i]; b = this.t[i]; }
+    }
+    if (a === null || b === null || b <= a) return;
+    const pad = (b - a) * 0.04;
+    this.setDomain([a - pad, b + pad]);
+  }
+}
+
+/* ---------- ValveChart (full-page valve view) ---------- */
+
+const VLH = 28, VLG = 2, VM = { left: 160, right: 30, top: 10, bottom: 40 };
+
+class ValveChart {
+  constructor(container, data, def) {
+    this.container = container;
+    this.data = data;
+    this.lanes = def.valveLanes;
+    this.accentRGB = def.accentRGB;
+    this.t = data.t;
+    this.full = [this.t[0], this.t[this.t.length - 1]];
+    this.domain = this.full.slice();
+    this.dpr = window.devicePixelRatio || 1;
+    this.drag = null;
+    this.hoverX = null;
+    this.build();
+    this.resize();
+  }
+
+  get totalH() { return VM.top + this.lanes.length * (VLH + VLG) + VM.bottom; }
+
+  build() {
+    const legend = this.lanes.map(l =>
+      `<span class="item"><span class="swatch" style="background:${l.color}"></span>${esc(l.name)}</span>`
+    ).join('');
+    this.container.innerHTML = `
+      <div class="valve-card">
+        <div class="valve-legend">${legend}</div>
+        <div class="valve-hint">drag to zoom · double-click to reset</div>
+        <div class="valve-canvas-wrap">
+          <canvas id="valveBase"></canvas>
+          <canvas id="valveOverlay" class="overlay"></canvas>
+        </div>
+      </div>`;
+    this.base = this.container.querySelector('#valveBase');
+    this.overlay = this.container.querySelector('#valveOverlay');
+    this.bindEvents();
+  }
+
+  bindEvents() {
+    const ov = this.overlay;
+    ov.addEventListener('mousemove', e => {
+      const rect = ov.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (this.drag) { this.drag.x1 = x; this.drawOverlay(); return; }
+      this.hoverX = Math.max(VM.left, Math.min(this.w - VM.right, x));
+      this.drawOverlay();
+    });
+    ov.addEventListener('mouseleave', () => {
+      if (this.drag) return;
+      this.hoverX = null;
+      this.drawOverlay();
+    });
+    ov.addEventListener('mousedown', e => {
+      const rect = ov.getBoundingClientRect();
+      this.drag = { x0: e.clientX - rect.left, x1: e.clientX - rect.left };
+      const up = () => {
+        document.removeEventListener('mouseup', up);
+        if (!this.drag) return;
+        const { x0, x1 } = this.drag;
+        this.drag = null;
+        if (Math.abs(x1 - x0) >= 8) {
+          const a = this.pxToX(Math.min(x0, x1)), b = this.pxToX(Math.max(x0, x1));
+          this.setDomain([a, b]);
+        } else this.drawOverlay();
+      };
+      document.addEventListener('mouseup', up);
+    });
+    ov.addEventListener('dblclick', () => this.setDomain(this.full.slice()));
+  }
+
+  xToPx(t) {
+    const [a, b] = this.domain;
+    return VM.left + (t - a) / (b - a) * (this.w - VM.left - VM.right);
+  }
+  pxToX(px) {
+    const [a, b] = this.domain;
+    return a + (px - VM.left) / (this.w - VM.left - VM.right) * (b - a);
+  }
+
+  setDomain(d) {
+    let [a, b] = d;
+    a = Math.max(this.full[0], a); b = Math.min(this.full[1], b);
+    if (b - a < 1) { const c = (a + b) / 2; a = c - 0.5; b = c + 0.5; }
+    this.domain = [a, b];
+    this.redraw();
+  }
+
+  resize() {
+    this.w = this.base.parentElement.clientWidth;
+    this.dpr = window.devicePixelRatio || 1;
+    const h = this.totalH;
+    for (const c of [this.base, this.overlay]) {
+      c.width = Math.round(this.w * this.dpr);
+      c.height = Math.round(h * this.dpr);
+      c.style.width = this.w + 'px';
+      c.style.height = h + 'px';
+    }
+    this.redraw();
+  }
+
+  redraw() {
+    const ctx = this.base.getContext('2d');
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const h = this.totalH;
+    ctx.clearRect(0, 0, this.w, h);
+    const plotW = this.w - VM.left - VM.right;
+    if (plotW <= 10) return;
+
+    const i0 = Math.max(0, lowerBound(this.t, this.domain[0]) - 1);
+    const i1 = Math.min(this.t.length - 1, lowerBound(this.t, this.domain[1]) + 1);
+
+    // phase bands
+    const bounds = this.data.phase_boundaries || [];
+    const edges = [this.full[0], ...bounds.map(b => b.t), this.full[1]];
+    const plotTop = VM.top, plotBot = h - VM.bottom;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(VM.left, plotTop, plotW, plotBot - plotTop); ctx.clip();
+    for (let k = 0; k < edges.length - 1; k++) {
+      if (k % 2 === 0) continue;
+      const x0 = this.xToPx(edges[k]), x1 = this.xToPx(edges[k + 1]);
+      if (x1 < VM.left || x0 > this.w - VM.right) continue;
+      ctx.fillStyle = 'rgba(226,232,240,0.03)';
+      ctx.fillRect(x0, plotTop, x1 - x0, plotBot - plotTop);
+    }
+    ctx.restore();
+
+    // phase boundary lines
+    for (const b of bounds) {
+      const x = this.xToPx(b.t);
+      if (x < VM.left || x > this.w - VM.right) continue;
+      ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(x, plotTop); ctx.lineTo(x, plotBot); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // boolean fill
+    const monoFont = getComputedStyle(document.body).getPropertyValue('--mono');
+    const sansFont = getComputedStyle(document.body).getPropertyValue('--sans');
+    ctx.save();
+    ctx.beginPath(); ctx.rect(VM.left, plotTop, plotW, plotBot - plotTop); ctx.clip();
+    this.lanes.forEach((lane, li) => {
+      const y0 = VM.top + li * (VLH + VLG);
+      const arr = this.data[lane.k];
+      if (!arr) return;
+
+      // draw filled rects where valve is open
+      ctx.fillStyle = lane.color + '99'; // ~60% opacity
+      let runStart = null;
+      for (let i = i0; i <= i1 + 1; i++) {
+        const open = i <= i1 && isOn(arr[i]);
+        if (open && runStart === null) runStart = i;
+        else if (!open && runStart !== null) {
+          const x0 = this.xToPx(this.t[runStart]);
+          const x1 = this.xToPx(this.t[i - 1]);
+          ctx.fillRect(Math.max(x0, VM.left), y0 + 2, Math.max(x1 - x0, 1), VLH - 4);
+          runStart = null;
+        }
+      }
+    });
+    ctx.restore();
+
+    // lane labels (outside clip)
+    ctx.font = '11px ' + sansFont;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    this.lanes.forEach((lane, li) => {
+      const y0 = VM.top + li * (VLH + VLG);
+      ctx.fillStyle = lane.color;
+      ctx.fillRect(VM.left - 12, y0 + VLH / 2 - 3, 6, 6);
+      ctx.fillStyle = '#a0aec0';
+      ctx.fillText(lane.name, VM.left - 20, y0 + VLH / 2);
+    });
+
+    // lane separator lines
+    this.lanes.forEach((_, li) => {
+      const y = VM.top + li * (VLH + VLG) + VLH;
+      ctx.strokeStyle = '#1f252d'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(VM.left, y); ctx.lineTo(this.w - VM.right, y); ctx.stroke();
+    });
+
+    // frame
+    ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 1;
+    ctx.strokeRect(VM.left + .5, plotTop + .5, plotW - 1, plotBot - plotTop - 1);
+
+    // x axis
+    const xt = niceTicks(this.domain[0], this.domain[1], Math.max(4, Math.floor(plotW / 110)));
+    ctx.font = '10px ' + monoFont;
+    ctx.fillStyle = '#718096';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (const tv of xt) {
+      const x = this.xToPx(tv);
+      if (x < VM.left - 1 || x > this.w - VM.right + 1) continue;
+      ctx.strokeStyle = '#2a3038';
+      ctx.beginPath(); ctx.moveTo(x, plotBot); ctx.lineTo(x, plotBot + 5); ctx.stroke();
+      ctx.fillText(fmtDur(tv), x, plotBot + 9);
+    }
+    ctx.textAlign = 'right'; ctx.fillStyle = '#718096';
+    ctx.font = '10px ' + sansFont;
+    ctx.fillText('elapsed time', this.w - VM.right, plotBot + 22);
+
+    this.drawOverlay();
+  }
+
+  drawOverlay() {
+    const ctx = this.overlay.getContext('2d');
+    const h = this.totalH;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, this.w, h);
+    const plotTop = VM.top, plotBot = h - VM.bottom;
+
+    if (this.drag) {
+      const a = Math.min(this.drag.x0, this.drag.x1), b = Math.max(this.drag.x0, this.drag.x1);
+      ctx.fillStyle = `rgba(${this.accentRGB},0.10)`;
+      ctx.fillRect(a, plotTop, b - a, plotBot - plotTop);
+      ctx.strokeStyle = `rgba(${this.accentRGB},0.5)`;
+      ctx.beginPath(); ctx.moveTo(a+.5, plotTop); ctx.lineTo(a+.5, plotBot);
+      ctx.moveTo(b+.5, plotTop); ctx.lineTo(b+.5, plotBot); ctx.stroke();
+    } else if (this.hoverX != null) {
+      ctx.strokeStyle = 'rgba(226,232,240,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(this.hoverX+.5, plotTop); ctx.lineTo(this.hoverX+.5, plotBot); ctx.stroke();
+
+      // time label at crosshair
+      const tt = this.pxToX(this.hoverX);
+      let idx = lowerBound(this.t, tt);
+      if (idx > 0 && (idx >= this.t.length || Math.abs(this.t[idx-1]-tt) < Math.abs(this.t[idx]-tt))) idx--;
+      if (idx >= 0 && idx < this.t.length) {
+        const monoFont = getComputedStyle(document.body).getPropertyValue('--mono');
+        ctx.font = '10px ' + monoFont;
+        ctx.fillStyle = 'rgba(226,232,240,0.8)';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText('t = ' + fmtDur(this.t[idx]), this.hoverX + 6, plotTop + 14);
+
+        // show open/closed state for each lane
+        this.lanes.forEach((lane, li) => {
+          const arr = this.data[lane.k];
+          if (!arr || idx >= arr.length) return;
+          const y0 = VM.top + li * (VLH + VLG);
+          if (isOn(arr[idx])) {
+            ctx.fillStyle = lane.color;
+            ctx.font = '9px ' + monoFont;
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText('OPEN', this.hoverX + 6, y0 + VLH / 2);
+          }
+        });
+      }
+    }
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (activeChart && state.tab === 'timeseries') activeChart.resize();
+  if (activeValveChart && state.tab === 'valves') activeValveChart.resize();
+});
+
+/* ======================================================================
+ *  3. Common view renderers
+ * ====================================================================== */
+
+/* ---------- view 1 : summary (delegates HTML to the machine) ---------- */
+
+async function renderSummary() {
+  const el = views.summary, id = state.runId, m = state.machine;
+  const def = machineDef();
+  if (!def) { el.innerHTML = '<div class="center-msg">No renderer configured for this machine</div>'; return; }
+  let data = cache.summary.get(id);
+  if (!data) {
+    showLoading(el);
+    try { data = await fetchJSON(api(`/run/${id}/summary`)); }
+    catch (err) { if (state.machine === m && state.runId === id) showError(el, err); return; }
+    if (state.machine !== m) return;
+    cache.summary.set(id, data);
+    if (state.runId !== id || state.tab !== 'summary') return;
+  }
+
+  el.innerHTML = def.renderSummary(data);
+
+  // clicking a card jumps to Time Series zoomed on that layer/phase
+  el.querySelectorAll('[data-seg]').forEach(card => {
+    card.addEventListener('click', () => {
+      state.pendingZoomSeg = Number(card.dataset.seg);
+      setTab('timeseries');
+    });
+  });
+}
+
+/* ---------- view 2 : time series ---------- */
+
+async function renderTimeseries() {
+  const el = views.timeseries, id = state.runId, m = state.machine;
+  const def = machineDef();
+  if (!def) { el.innerHTML = '<div class="center-msg">No renderer configured for this machine</div>'; return; }
+  let data = cache.ts.get(id);
+  if (!data) {
+    showLoading(el);
+    try { data = await fetchJSON(api(`/run/${id}/timeseries`)); }
+    catch (err) { if (state.machine === m && state.runId === id) showError(el, err); return; }
+    if (state.machine !== m) return;
+    cache.ts.set(id, data);
+    if (state.runId !== id || state.tab !== 'timeseries') return;
+  }
+  if (!data.t || !data.t.length) { el.innerHTML = '<div class="center-msg">No time-series data for this run</div>'; return; }
+  activeChart = new TSChart(el, data, def);
+  if (state.pendingZoomSeg != null) {
+    activeChart.zoomToSegment(state.pendingZoomSeg);
+    state.pendingZoomSeg = null;
+  }
+}
+
+/* ---------- view 3 : comparison ---------- */
+
+function median(a) {
+  const s = a.slice().sort((x, y) => x - y);
+  const n = s.length;
+  return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+function stddev(a) {
+  const n = a.length;
+  if (n < 2) return 0;
+  const mu = a.reduce((p, c) => p + c, 0) / n;
+  return Math.sqrt(a.reduce((p, c) => p + (c - mu) * (c - mu), 0) / n);
+}
+
+function sparklineSVG(values, target, accent) {
+  const pts = values.map((v, i) => [i, v]).filter(p => p[1] != null && isFinite(p[1]));
+  if (pts.length < 2) return '';
+  const W = 80, H = 20, PAD = 2;
+  let vals = pts.map(p => p[1]);
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (target != null && isFinite(target)) { min = Math.min(min, target); max = Math.max(max, target); }
+  if (min === max) { min -= 1; max += 1; }
+  const n = values.length;
+  const X = i => PAD + i / (n - 1) * (W - 2 * PAD);
+  const Y = v => H - PAD - (v - min) / (max - min) * (H - 2 * PAD);
+  const path = pts.map((p, k) => `${k ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+  let tline = '';
+  if (target != null && isFinite(target)) {
+    const y = Y(target).toFixed(1);
+    tline = `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#718096" stroke-width="1" stroke-dasharray="2 3" opacity=".7"/>`;
+  }
+  const last = pts[pts.length - 1];
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${tline}` +
+    `<path d="${path}" fill="none" stroke="${accent}" stroke-width="1.2"/>` +
+    `<circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="1.8" fill="${accent}"/></svg>`;
+}
+
+function cmpBarHTML(allRuns) {
+  const sel = state.cmpSelectedIds;
+  const n = sel.size;
+  const label = n === 0 ? 'Select runs…' : `${n} run${n > 1 ? 's' : ''} selected`;
+  const items = allRuns.map(r => `
+    <label class="cmp-menu-item">
+      <input type="checkbox" data-id="${esc(r.id)}" ${sel.has(r.id) ? 'checked' : ''}>
+      <span class="run-date">${esc(r.date)}  ${esc(r.time)}</span>
+      ${r.complete ? '' : '<span class="run-flag">⚠ incomplete</span>'}
+    </label>`).join('');
+  return `
+    <div class="cmp-bar">
+      <span class="cmp-bar-label">RUNS</span>
+      <div class="cmp-dropdown">
+        <button class="cmp-trigger" id="cmpTrigger">${esc(label)}</button>
+        <div class="cmp-menu" id="cmpMenu">
+          <div class="cmp-menu-actions">
+            <button id="cmpSelAll">Select all</button>
+            <button id="cmpSelNone">Clear</button>
+          </div>
+          <div class="cmp-menu-list">${items}</div>
+        </div>
+      </div>
+      ${n > 0 ? `<button class="cfg-btn" id="cmpLoadBtn" style="padding:5px 20px;font-size:12px">Compare</button>` : ''}
+    </div>`;
+}
+
+function bindCmpBar(el, allRuns) {
+  const trigger = el.querySelector('#cmpTrigger');
+  const menu = el.querySelector('#cmpMenu');
+  if (trigger && menu) {
+    trigger.addEventListener('click', e => {
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    document.addEventListener('click', e => {
+      if (!menu.contains(e.target) && e.target !== trigger) menu.classList.remove('open');
+    }, { once: false });
+  }
+  const addCompareBtn = () => {
+    if (el.querySelector('#cmpLoadBtn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'cfg-btn'; btn.id = 'cmpLoadBtn';
+    btn.style.cssText = 'padding:5px 20px;font-size:12px';
+    btn.textContent = 'Compare';
+    btn.addEventListener('click', loadComparison);
+    el.querySelector('.cmp-bar').appendChild(btn);
+  };
+  el.querySelectorAll('.cmp-menu-item input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.cmpSelectedIds.add(cb.dataset.id);
+      else state.cmpSelectedIds.delete(cb.dataset.id);
+      // Update trigger text and compare button without full re-render
+      const n = state.cmpSelectedIds.size;
+      if (trigger) trigger.textContent = n === 0 ? 'Select runs…' : `${n} run${n > 1 ? 's' : ''} selected`;
+      const oldBtn = el.querySelector('#cmpLoadBtn');
+      if (n > 0 && !oldBtn) addCompareBtn();
+      else if (n === 0 && oldBtn) oldBtn.remove();
+    });
+  });
+  const selAll = el.querySelector('#cmpSelAll');
+  const selNone = el.querySelector('#cmpSelNone');
+  if (selAll) selAll.addEventListener('click', () => {
+    allRuns.forEach(r => state.cmpSelectedIds.add(r.id));
+    el.querySelectorAll('.cmp-menu-item input').forEach(cb => { cb.checked = true; });
+    const n = state.cmpSelectedIds.size;
+    if (trigger) trigger.textContent = `${n} run${n > 1 ? 's' : ''} selected`;
+    addCompareBtn();
+  });
+  if (selNone) selNone.addEventListener('click', () => {
+    state.cmpSelectedIds.clear();
+    cache.comparison = null;
+    el.querySelectorAll('.cmp-menu-item input').forEach(cb => { cb.checked = false; });
+    if (trigger) trigger.textContent = 'Select runs…';
+    const btn = el.querySelector('#cmpLoadBtn');
+    if (btn) btn.remove();
+  });
+  const loadBtn = el.querySelector('#cmpLoadBtn');
+  if (loadBtn) loadBtn.addEventListener('click', loadComparison);
+}
+
+async function renderComparison() {
+  const el = views.comparison;
+  const def = machineDef();
+  const allRuns = state.runs || [];
+  if (!allRuns.length) { el.innerHTML = '<div class="center-msg">No runs found</div>'; return; }
+
+  const sel = state.cmpSelectedIds;
+  const cacheKey = [...sel].sort().join(',');
+  const data = cache.comparison;
+
+  // No data loaded yet — show picker only
+  if (!data || data._cacheKey !== cacheKey) {
+    el.innerHTML = cmpBarHTML(allRuns) +
+      (sel.size > 0
+        ? '<div class="center-msg" style="margin-top:48px">Click <strong>Compare</strong> to load</div>'
+        : '<div class="center-msg" style="margin-top:48px">Select runs to compare</div>');
+    bindCmpBar(el, allRuns);
+    return;
+  }
+
+  // Render the table
+  const runs = data.runs || [];
+  const metrics = data.metrics || {};
+  const accent = (def && def.accent) || '#4fd1c5';
+
+  // groups: the machine's predeclared groups, then any metrics the backend
+  // sent that we did not anticipate get their own "Other" group.
+  const baseGroups = (def && def.cmpGroups) || [];
+  const known = new Set(baseGroups.flatMap(g => g.metrics.map(([k]) => k)));
+  const extra = Object.keys(metrics).filter(k => !known.has(k));
+  const groups = extra.length
+    ? [...baseGroups, { name: 'Other', metrics: extra.map(k => [k, (metrics[k] && metrics[k].label) || k]) }]
+    : baseGroups;
+
+  let head = `<tr><th>Metric</th><th>Trend</th>${runs.map(r => `<th>${esc(r)}</th>`).join('')}</tr>`;
+  let body = '';
+  const ncols = runs.length + 2;
+
+  for (const g of groups) {
+    const present = g.metrics.filter(([k]) => metrics[k]);
+    if (!present.length) continue;
+    const collapsed = state.collapsedGroups.has(g.name);
+    body += `<tr class="grp ${collapsed ? 'collapsed' : ''}" data-grp="${esc(g.name)}"><td colspan="${ncols}"><span class="caret">▾</span>${esc(g.name)}</td></tr>`;
+    for (const [k, label] of present) {
+      const m = metrics[k];
+      const vals = m.values || [];
+      const finite = vals.filter(v => v != null && isFinite(v));
+      const med = finite.length ? median(finite) : null;
+      const sd = finite.length ? stddev(finite) : 0;
+      const tgtTxt = m.target != null
+        ? `<div class="tgt">target ${fmtVal(m.target, m.unit)} ${esc(m.unit || '')}</div>` : '';
+      let cells = '';
+      for (const v of vals) {
+        let cls = '';
+        if (v != null && isFinite(v) && med != null && sd > 0) {
+          const dev = Math.abs(v - med);
+          if (dev > 2 * sd) cls = 'anom2';
+          else if (dev > sd) cls = 'anom1';
+        }
+        cells += `<td class="val ${cls}">${fmtVal(v, m.unit)}</td>`;
+      }
+      body += `<tr class="mrow ${collapsed ? 'hidden' : ''}" data-grp="${esc(g.name)}">
+        <td class="name">${esc(label)}<span class="unit">${esc(m.unit || '')}</span>${tgtTxt}</td>
+        <td class="spark">${sparklineSVG(vals, m.target, accent)}</td>${cells}</tr>`;
+    }
+  }
+
+  el.innerHTML = cmpBarHTML(allRuns) + `
+    <div class="cmp-wrap"><table class="cmp"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    <div class="cmp-note">Deviation from median across runs:
+      <span class="chip" style="background:var(--warn)"></span>&gt; 1σ
+      <span class="chip" style="background:var(--bad)"></span>&gt; 2σ
+      &nbsp;·&nbsp; dashed line in trend = target</div>`;
+
+  bindCmpBar(el, allRuns);
+
+  el.querySelectorAll('tr.grp').forEach(row => {
+    row.addEventListener('click', () => {
+      const g = row.dataset.grp;
+      const collapsed = row.classList.toggle('collapsed');
+      if (collapsed) state.collapsedGroups.add(g); else state.collapsedGroups.delete(g);
+      el.querySelectorAll(`tr.mrow[data-grp="${CSS.escape(g)}"]`).forEach(r => r.classList.toggle('hidden', collapsed));
+    });
+  });
+}
+
+async function loadComparison() {
+  const ids = [...state.cmpSelectedIds].sort();
+  if (!ids.length) return;
+  const el = views.comparison, m = state.machine;
+  const cacheKey = ids.join(',');
+
+  const wrap = el.querySelector('.cmp-wrap');
+  if (wrap) wrap.innerHTML = '<div class="center-msg">Loading…</div>';
+  else {
+    const msg = el.querySelector('.center-msg');
+    if (msg) msg.textContent = 'Loading…';
+  }
+
+  try {
+    const data = await fetchJSON(api(`/comparison?runs=${ids.join(',')}`));
+    if (state.machine !== m) return;
+    data._cacheKey = cacheKey;
+    cache.comparison = data;
+  } catch (err) {
+    if (state.machine === m) showError(el, err);
+    return;
+  }
+  if (state.tab === 'comparison') renderComparison();
+}
+
+/* ---------- view 4 : recipe diff ---------- */
+
+async function renderRecipe() {
+  const el = views.recipe, id = state.runId, m = state.machine;
+  let data = cache.diff.get(id);
+  if (!data) {
+    showLoading(el);
+    try { data = await fetchJSON(api(`/run/${id}/recipe-diff`)); }
+    catch (err) { if (state.machine === m && state.runId === id) showError(el, err); return; }
+    if (state.machine !== m) return;
+    cache.diff.set(id, data);
+    if (state.runId !== id || state.tab !== 'recipe') return;
+  }
+
+  const changes = data.changes || [];
+  const changeMap = new Map(changes.map(c => [c.path, c]));
+  const summaryTxt = data.has_changes
+    ? `<strong>${changes.length}</strong> mid-run edit${changes.length === 1 ? '' : 's'} detected`
+    : 'No mid-run edits detected';
+
+  let html = `
+    <div class="rd-head">
+      <div class="rd-summary">${summaryTxt}</div>
+      <label class="rd-toggle"><input type="checkbox" id="rdShowAll" ${state.showAllParams ? 'checked' : ''}> Show all parameters</label>
+    </div>`;
+
+  const rows = state.showAllParams
+    ? (data.all_params || []).map(p => {
+        const c = changeMap.get(p.path);
+        return c ? { path: p.path, orig: c.original, val: c.complete, changed: true }
+                 : { path: p.path, orig: null, val: p.value, changed: false };
+      })
+    : changes.map(c => ({ path: c.path, orig: c.original, val: c.complete, changed: true }));
+
+  if (!rows.length) {
+    html += `<div class="center-msg"><span class="big">✓</span>Recipe ran exactly as written — no mid-run edits</div>`;
+    el.innerHTML = html;
+    bindRdToggle(el);
+    return;
+  }
+
+  // group by first path segment (e.g. "Layer 2" / "Phase 5")
+  const groups = new Map();
+  for (const r of rows) {
+    const segs = String(r.path).split(' / ');
+    const g = segs.length > 1 ? segs[0] : 'General';
+    const rest = segs.length > 1 ? segs.slice(1).join(' / ') : segs[0];
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push({ ...r, param: rest });
+  }
+
+  for (const [g, list] of groups) {
+    html += `<div class="rd-group"><h3>${esc(g)}</h3>`;
+    for (const r of list) {
+      html += `
+        <div class="rd-row ${r.changed ? 'changed' : ''}">
+          <div class="rd-param">${esc(r.param)}</div>
+          <div class="rd-orig">${r.changed ? esc(r.orig) : ''}</div>
+          <div class="rd-arrow">${r.changed ? '→' : ''}</div>
+          <div class="rd-new">${esc(r.val)}</div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+  bindRdToggle(el);
+}
+
+function bindRdToggle(el) {
+  const cb = el.querySelector('#rdShowAll');
+  if (cb) cb.addEventListener('change', () => { state.showAllParams = cb.checked; renderRecipe(); });
+}
+
+/* ---------- view 5 : valves ---------- */
+
+async function renderValves() {
+  const el = views.valves, id = state.runId, m = state.machine;
+  const def = machineDef();
+  if (!def) { el.innerHTML = '<div class="center-msg">No renderer configured for this machine</div>'; return; }
+  let data = cache.valves.get(id);
+  if (!data) {
+    showLoading(el);
+    try { data = await fetchJSON(api(`/run/${id}/valves`)); }
+    catch (err) { if (state.machine === m) showError(el, err); return; }
+    if (state.machine !== m) return;
+    cache.valves.set(id, data);
+  }
+  if (activeValveChart) activeValveChart = null;
+  el.innerHTML = '';
+  activeValveChart = new ValveChart(el, data, def);
+}
+
+/* ---------- config modal ---------- */
+
+(function() {
+  const modal = document.getElementById('configModal');
+  const input = document.getElementById('cfgDirInput');
+  const errEl = document.getElementById('cfgError');
+  const btnOpen = document.getElementById('btnConfig');
+  const btnClose = document.getElementById('btnCloseModal');
+  const btnSet = document.getElementById('btnSetDir');
+
+  btnOpen.addEventListener('click', async () => {
+    if (!state.machine) return;
+    errEl.textContent = '';
+    try {
+      const cfg = await fetchJSON(api('/config'));
+      input.value = cfg.log_dir || '';
+    } catch (e) { input.value = ''; }
+    modal.style.display = 'flex';
+    input.focus();
+  });
+
+  btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+  modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+
+  btnSet.addEventListener('click', async () => {
+    errEl.textContent = '';
+    const dir = input.value.trim();
+    if (!dir) { errEl.textContent = 'Please enter a directory path'; return; }
+    try {
+      const r = await fetch(api('/config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ log_dir: dir }),
+      });
+      const data = await r.json();
+      if (!r.ok) { errEl.textContent = data.error || 'Failed'; return; }
+      // refresh runs
+      modal.style.display = 'none';
+      clearCaches();
+      await loadRuns();
+    } catch (e) { errEl.textContent = e.message; }
+  });
+
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') btnSet.click(); });
+})();
+
+/* ======================================================================
+ *  4. JJ evaporator module
+ * ====================================================================== */
+
+(function() {
+
+  function angleText(L) {
+    if (L.tilt == null && L.rotation == null) return '';
+    const parts = [];
+    if (L.tilt != null) parts.push(`tilt ${L.tilt}°`);
+    if (L.rotation != null) parts.push(`rot ${L.rotation}°`);
+    return ' · ' + parts.join(' / ');
+  }
+
+  function renderSummary(data) {
+    const info = data.run_info || {};
+    let html = `
+      <div class="run-info-bar">
+        <div class="metric"><div class="m-label">Run date</div><div class="m-value">${esc(info.date ?? '—')}</div></div>
+        <div class="metric"><div class="m-label">Total duration</div><div class="m-value">${fmtDur(info.total_duration)}</div></div>
+        <div class="metric"><div class="m-label">Base pressure</div><div class="m-value">${info.base_pressure != null ? withUnit(sciHTML(info.base_pressure), 'Torr') : '—'}</div></div>
+      </div>
+      <div class="timeline">`;
+
+    for (const L of (data.layers || [])) {
+      const isOx = L.type === 'oxidation';
+      const isEtch = L.type === 'etch';
+      if (isEtch) {
+        html += `
+        <div class="layer-card etch clickable" data-seg="${L.layer}" title="Click to view this layer in Time Series">
+          <div class="tl-dot"></div>
+          <div class="lc-head">
+            <div class="lc-name">${esc(L.name ?? `Layer ${L.layer}`)}</div>
+            <div class="lc-mat">layer ${L.layer}${angleText(L)}</div>
+            <span class="lc-tag etch">ION ETCH</span>
+          </div>
+          <div class="lc-metrics">
+            ${metricHTML('Etch time', withUnit(fmtVal(L.etch_duration, 's'), 's'))}
+            ${metricHTML('Beam V', withUnit(fmtVal(L.beam_voltage, 'V'), 'V'))}
+            ${metricHTML('Beam I', withUnit(fmtVal(L.beam_current, 'mA'), 'mA'))}
+            ${metricHTML('Ar flow', withUnit(fmtVal(L.ar_flow, 'sccm'), 'sccm'))}
+          </div>
+        </div>`;
+      } else if (isOx) {
+        html += `
+        <div class="layer-card ox clickable" data-seg="${L.layer}" title="Click to view this layer in Time Series">
+          <div class="tl-dot"></div>
+          <div class="lc-head">
+            <div class="lc-name">${esc(L.name ?? `Layer ${L.layer}`)}</div>
+            <div class="lc-mat">layer ${L.layer}${angleText(L)}</div>
+            <span class="lc-tag ox">OXIDATION</span>
+          </div>
+          <div class="lc-metrics">
+            ${metricHTML('Pressure', withUnit(fmtVal(L.pressure_actual, 'Torr'), 'Torr'),
+              deltaHTML(L.pressure_actual, L.pressure_setpoint, 'Torr', 2))}
+            ${metricHTML('Duration', withUnit(fmtVal(L.duration, 's'), 's'))}
+            ${L.gas ? metricHTML('Gas', esc(L.gas)) : ''}
+          </div>
+        </div>`;
+      } else {
+        const m = [];
+        if (L.thickness_actual != null) m.push(metricHTML('Thickness',
+          withUnit(fmtVal(L.thickness_actual, 'Å'), 'Å'),
+          deltaHTML(L.thickness_actual, L.thickness_target, 'Å', 1)));
+        if (L.rate_mean != null) m.push(metricHTML('Rate (MC1)',
+          `${fmtVal(L.rate_mean, 'Å/s')}${L.rate_std != null ? ` ± ${L.rate_std.toFixed(2)}` : ''}<span class="unit">Å/s</span>`,
+          deltaHTML(L.rate_mean, L.rate_setpoint, 'Å/s', 2)));
+        if (L.rate_mean_dual != null) m.push(metricHTML('Rate (Dual 2A)',
+          withUnit(fmtVal(L.rate_mean_dual, 'Å/s'), 'Å/s')));
+        if (L.power_mean != null) m.push(metricHTML('Power',
+          withUnit(fmtVal(L.power_mean, '%'), '%')));
+        if (L.shutter_duration != null) m.push(metricHTML('Duration',
+          withUnit(fmtVal(L.shutter_duration, 's'), 's')));
+        if (L.pressure_max != null) m.push(metricHTML('Max pressure',
+          withUnit(sciHTML(L.pressure_max), 'Torr')));
+        const cal = L.calibration;
+        const calHtml = cal ? `
+          <details class="cal" onclick="event.stopPropagation()">
+            <summary>CAL</summary>
+            <div class="cal-pop">
+              <div class="cal-mat">${esc(L.material)}</div>
+              <div><span class="cal-lbl">MC1</span>TF ${cal.mc1_tooling} · ρ ${cal.mc1_density} · Z ${cal.mc1_zfactor} · xtal ${cal.mc1_crystal}</div>
+              <div><span class="cal-lbl">DUAL 2A</span>TF ${cal.dual_tooling} · ρ ${cal.dual_density} · Z ${cal.dual_zfactor}</div>
+            </div>
+          </details>` : '';
+        html += `
+        <div class="layer-card dep ${L.material === 'Titanium' ? 'mat-ti' : 'mat-al'} clickable" data-seg="${L.layer}" title="Click to view this layer in Time Series">
+          <div class="tl-dot"></div>
+          ${calHtml}
+          <div class="lc-head">
+            <div class="lc-name">${esc(L.name ?? `Layer ${L.layer}`)}</div>
+            <div class="lc-mat">${esc(L.material ?? '')}${L.material ? ' · ' : ''}layer ${L.layer}${angleText(L)}</div>
+          </div>
+          <div class="lc-metrics">${m.join('')}</div>
+        </div>`;
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  MACHINE_DEFS.jj = {
+    name: 'JJ Evaporator',
+    accent: '#4fd1c5',
+    accentRGB: '79,209,197',
+    zoomKey: 'layer',                          // summary card → time-series zoom
+    shutterBand: 'rgba(79,209,197,0.06)',      // substrate-shutter-open band
+    renderSummary,
+
+    panels: [
+      { label: 'Rate (Å/s)', series: [
+          { k: 'rate_mc1',  name: 'Rate MC1',       color: '#4fd1c5', u: 'Å/s', d: 2 },
+          { k: 'rate_dual', name: 'Rate Dual 2A',   color: '#9ceee6', u: 'Å/s', d: 2, dash: [5, 4] } ] },
+      { label: 'Power (%)', series: [
+          { k: 'power_ti',  name: 'Ti power',       color: '#f6ad55', u: '%', d: 2, dash: [6, 4] },
+          { k: 'power_al',  name: 'Al power',       color: '#fcd9a4', u: '%', d: 2 } ] },
+      { label: 'Thickness (Å)', series: [
+          { k: 'thickness_ti', name: 'Ti thickness', color: '#b794f4', u: 'Å', d: 1, dash: [6, 4] },
+          { k: 'thickness_al', name: 'Al thickness', color: '#dcc8fb', u: 'Å', d: 1 } ] },
+      { label: 'Pressure (Torr)', log: true, series: [
+          { k: 'pressure_evap',   name: 'Evap chamber',  color: '#63b3ed', u: 'Torr' },
+          { k: 'pressure_ox_ch',  name: 'Ox chamber',    color: '#81d4fa', u: 'Torr' },
+          { k: 'pressure_ox',     name: 'Ox process',    color: '#aed4f7', u: 'Torr', dash: [5, 4] } ] },
+    ],
+
+    tsLanes: [
+      { k: 'shutter',        name: 'Substrate shutter',  color: '#4fd1c5' },
+      { k: 'ti_src_shutter', name: 'Ti source shutter',  color: '#f6ad55' },
+      { k: 'al_src_shutter', name: 'Al source shutter',  color: '#b794f4' },
+      { k: 'kdc_shutter',    name: 'KDC ion shutter',    color: '#fc8181' },
+      { k: 'mc1_shutter',    name: 'MC1 sensor shutter', color: '#68d391' },
+      { k: 'dual_shutter',   name: 'Dual sensor shutter',color: '#63b3ed' },
+    ],
+
+    valveLanes: [
+      { k: 'substrate_shutter',  name: 'Substrate shutter',  color: '#4fd1c5' },
+      { k: 'substrate_cmd',      name: 'Substrate cmd',      color: '#3ab0a5' },
+      { k: 'ti_source_shutter',  name: 'Ti source shutter',  color: '#f6ad55' },
+      { k: 'al_source_shutter',  name: 'Al source shutter',  color: '#b794f4' },
+      { k: 'kdc_ion_shutter',    name: 'KDC ion shutter',    color: '#fc8181' },
+      { k: 'mc1_sensor_shutter', name: 'MC1 sensor shutter', color: '#68d391' },
+      { k: 'dual_sensor_shutter',name: 'Dual sensor shutter',color: '#63b3ed' },
+    ],
+
+    cmpGroups: [
+      { name: 'Ti gettering', metrics: [
+          ['ti_thickness', 'Thickness'], ['ti_rate_mean', 'Rate (MC1)'], ['ti_power_mean', 'Power'] ] },
+      { name: 'Al 1st', metrics: [
+          ['al1_thickness', 'Thickness'], ['al1_rate_mean', 'Rate (MC1)'], ['al1_rate_dual', 'Rate (Dual 2A)'] ] },
+      { name: 'Junction oxidation', metrics: [
+          ['jox_pressure', 'Pressure'], ['jox_duration', 'Duration'] ] },
+      { name: 'Al 2nd', metrics: [
+          ['al2_thickness', 'Thickness'], ['al2_rate_mean', 'Rate (MC1)'] ] },
+      { name: 'Capping oxidation', metrics: [
+          ['cap_pressure', 'Pressure'], ['cap_duration', 'Duration'] ] },
+      { name: 'System', metrics: [
+          ['base_pressure', 'Base pressure'], ['mc1_remaining', 'MC1 crystal remaining'] ] },
+    ],
+  };
+
+})();
+
+/* ======================================================================
+ *  5. Ta sputterer module
+ * ====================================================================== */
+
+(function() {
+
+  // A phase is heating (1–2), sputtering (3–5) or cooldown (6–7).
+  // Field presence overrides the numeric convention so unusual recipes still classify sensibly.
+  function phaseKind(P) {
+    const n = P.phase;
+    const hasSput = P.sputter_power != null || P.sputter_voltage != null ||
+                    P.rate_mean != null || P.thickness_final != null;
+    if (hasSput) return 'sput';
+    if (n >= 6 || /cool/i.test(P.name || '')) return 'cool';
+    if (n >= 3 && n <= 5) return 'sput';
+    return 'heat';
+  }
+
+  function tempRangeHTML(a, b) {
+    const f = v => v == null || !isFinite(v) ? '—' : v.toFixed(0);
+    return `${f(a)}<span class="arr">→</span>${f(b)}<span class="unit">°C</span>`;
+  }
+
+  function sparkHTML(n) {
+    const cls = n === 0 ? 'ok' : n <= 5 ? 'warn' : 'bad';
+    const txt = n === 0 ? 'none during phase' : `+${n} during phase`;
+    return metricHTML('Sparks', String(n),
+      `<div class="m-delta ${cls}"><span class="dot"></span>${txt}</div>`);
+  }
+
+  function calChipHTML(P, material) {
+    const cal = P.calibration;
+    if (!cal) return '';
+    const tf   = cal.tooling  ?? cal.tooling_factor ?? cal.mc1_tooling;
+    const rho  = cal.density  ?? cal.mc1_density;
+    const z    = cal.zfactor  ?? cal.z_factor ?? cal.mc1_zfactor;
+    const xtal = cal.crystal  ?? cal.crystal_life ?? cal.mc1_crystal;
+    const bits = [];
+    if (tf  != null) bits.push(`TF ${tf}`);
+    if (rho != null) bits.push(`ρ ${rho}`);
+    if (z   != null) bits.push(`Z ${z}`);
+    if (xtal != null) bits.push(`xtal ${xtal}`);
+    if (!bits.length) return '';
+    return `
+      <details class="cal" onclick="event.stopPropagation()">
+        <summary>CAL</summary>
+        <div class="cal-pop">
+          <div class="cal-mat">${esc(material || 'Sensor')}</div>
+          <div><span class="cal-lbl">QCM</span>${bits.join(' · ')}</div>
+        </div>
+      </details>`;
+  }
+
+  function renderSummary(data) {
+    const info = data.run_info || {};
+    let html = `
+      <div class="run-info-bar">
+        <div class="metric"><div class="m-label">Run date</div><div class="m-value">${esc(info.date ?? '—')}</div></div>
+        ${info.recipe_name ? `<div class="metric"><div class="m-label">Recipe</div><div class="m-value" style="font-family:var(--sans);font-size:14px">${esc(info.recipe_name)}</div></div>` : ''}
+        ${info.material ? `<div class="metric"><div class="m-label">Material</div><div class="m-value" style="font-family:var(--sans);font-size:14px">${esc(info.material)}</div></div>` : ''}
+        <div class="metric"><div class="m-label">Total duration</div><div class="m-value">${fmtDur(info.total_duration)}</div></div>
+        <div class="metric"><div class="m-label">Base pressure</div><div class="m-value">${info.base_pressure != null ? withUnit(sciHTML(info.base_pressure), 'Torr') : '—'}</div></div>
+      </div>
+      <div class="timeline">`;
+
+    for (const P of (data.phases || [])) {
+      const kind = phaseKind(P);
+      const m = [];
+
+      if (kind === 'sput') {
+        if (P.dc_mode)
+          m.push(metricHTML('Mode', `<strong>${esc(P.dc_mode)}</strong>${P.pulse_freq_hz ? ` (${P.pulse_freq_hz} Hz)` : ''}`));
+        if (P.sputter_power != null)
+          m.push(metricHTML('Power', withUnit(fmtVal(P.sputter_power, 'W'), 'W')));
+        if (P.sputter_voltage != null)
+          m.push(metricHTML('Voltage', withUnit(fmtVal(P.sputter_voltage, 'V'), 'V')));
+        if (P.sputter_current != null)
+          m.push(metricHTML('Current', withUnit(fmtVal(P.sputter_current, 'mA'), 'mA')));
+        if (P.rate_mean != null)
+          m.push(metricHTML('Rate',
+            `${fmtVal(P.rate_mean, 'Å/s')}${P.rate_std != null ? ` ± ${P.rate_std.toFixed(2)}` : ''}<span class="unit">Å/s</span>`,
+            deltaHTML(P.rate_mean, P.rate_setpoint, 'Å/s', 2)));
+        if (P.thickness_final != null)
+          m.push(metricHTML('Thickness', withUnit(fmtVal(P.thickness_final, 'Å'), 'Å'),
+            deltaHTML(P.thickness_final, P.thickness_target, 'Å', 1)));
+        if (P.ar_flow != null)
+          m.push(metricHTML('Ar flow', withUnit(fmtVal(P.ar_flow, 'sccm'), 'sccm')));
+        if (P.substrate_temp != null)
+          m.push(metricHTML('Substrate temp', withUnit(fmtVal(P.substrate_temp, '°C'), '°C')));
+        if (P.spark_count_delta != null)
+          m.push(sparkHTML(P.spark_count_delta));
+        if (P.duration != null)
+          m.push(metricHTML('Duration', fmtDur(P.duration)));
+      } else {
+        // heating / cooldown phases: temperature profile dominates
+        if (P.temp_start != null || P.temp_end != null)
+          m.push(metricHTML('Temperature', tempRangeHTML(P.temp_start, P.temp_end)));
+        if (kind === 'heat' && P.temp_max != null)
+          m.push(metricHTML('Max temp', withUnit(fmtVal(P.temp_max, '°C'), '°C')));
+        if (P.heater_power_mean != null)
+          m.push(metricHTML('Heater power', withUnit(fmtVal(P.heater_power_mean, '%'), '%')));
+        if (P.substrate_temp != null)
+          m.push(metricHTML('Substrate temp', withUnit(fmtVal(P.substrate_temp, '°C'), '°C')));
+        if (P.duration != null)
+          m.push(metricHTML('Duration', fmtDur(P.duration)));
+      }
+
+      const tag = kind === 'heat' ? '<span class="lc-tag heat">HEATING</span>'
+                : kind === 'sput' ? '<span class="lc-tag sput">SPUTTER</span>'
+                : '<span class="lc-tag cool">COOLDOWN</span>';
+      const calHtml = kind === 'sput' ? calChipHTML(P, info.material) : '';
+
+      html += `
+        <div class="phase-card ph-${kind} clickable" data-seg="${P.phase}" title="Click to view this phase in Time Series">
+          <div class="tl-dot"></div>
+          ${calHtml}
+          <div class="lc-head">
+            <div class="lc-name">${esc(P.name ?? `Phase ${P.phase}`)}</div>
+            <div class="lc-mat">phase ${P.phase}</div>
+            ${tag}
+          </div>
+          <div class="lc-metrics">${m.join('')}</div>
+        </div>`;
+    }
+    html += '</div>';
+    return html;
+  }
+
+  MACHINE_DEFS.ta = {
+    name: 'Ta Sputterer',
+    accent: '#f6ad55',
+    accentRGB: '246,173,85',
+    zoomKey: 'phase',                          // summary card → time-series zoom
+    shutterBand: 'rgba(252,129,129,0.06)',     // deposition-window band
+    renderSummary,
+
+    /*
+     * Panels use a left axis, plus an optional right axis (cfg.right) for a
+     * second quantity whose scale differs by orders of magnitude.
+     * Series formatting hints: u = unit for tooltip, d = decimals for tooltip.
+     */
+    panels: [
+      { label: 'Temperature (°C)', series: [
+          { k: 'heater_temp', name: 'Heater temp',      color: '#fc8181', u: '°C', d: 0 },
+          { k: 'pyro_temp',   name: 'Pyro temp (kSA)',  color: '#feb2b2', u: '°C', d: 0, dash: [5, 4] } ],
+        right: { label: 'Reflectivity (%)', series: [
+          { k: 'reflectivity', name: 'Reflectivity',    color: '#b794f4', u: '%', d: 1, dash: [2, 3] } ] } },
+      { label: 'Sputter (W / V)', series: [
+          { k: 'sputter_power_w', name: 'Power',        color: '#f6ad55', u: 'W', d: 1 },
+          { k: 'sputter_voltage', name: 'Voltage',      color: '#fcd9a4', u: 'V', d: 1, dash: [6, 4] } ],
+        right: { label: 'Current (mA)', series: [
+          { k: 'sputter_current', name: 'Current',      color: '#f6ad55', u: 'mA', d: 0, dash: [2, 3] } ] } },
+      { label: 'Rate (Å/s)', series: [
+          { k: 'rate', name: 'QCM rate',                color: '#4fd1c5', u: 'Å/s', d: 2 },
+          { k: 'cal_rate', name: 'Calibrated rate',     color: '#68d391', u: 'Å/s', d: 2, dash: [6, 4] } ],
+        right: { label: 'Thickness (Å)', series: [
+          { k: 'thickness', name: 'QCM thickness',      color: '#9ceee6', u: 'Å', d: 1, dash: [4, 3] },
+          { k: 'cal_thickness', name: 'Film thickness', color: '#f0fff4', u: 'Å', d: 1 } ] } },
+      { label: 'Pressure (Torr)', log: true, series: [
+          { k: 'pressure', name: 'Chamber pressure',    color: '#63b3ed', u: 'Torr' } ],
+        right: { label: 'Ar flow (sccm)', series: [
+          { k: 'ar_flow', name: 'Ar flow',              color: '#68d391', u: 'sccm', d: 1, dash: [5, 4] } ] } },
+    ],
+
+    tsLanes: [
+      { k: 'shutter',        name: 'Substrate shutter', color: '#4fd1c5' },
+      { k: 'src_shutter',    name: 'Source shutter',    color: '#f6ad55' },
+      { k: 'sensor_shutter', name: 'Sensor shutter',    color: '#68d391' },
+    ],
+
+    valveLanes: [
+      { k: 'substrate_shutter', name: 'Substrate shutter', color: '#4fd1c5' },
+      { k: 'substrate_cmd',     name: 'Substrate cmd',     color: '#3ab0a5' },
+      { k: 'source_shutter',    name: 'Source shutter',    color: '#f6ad55' },
+      { k: 'sensor_shutter',    name: 'Sensor shutter',    color: '#68d391' },
+    ],
+
+    cmpGroups: [
+      { name: 'Deposition', metrics: [
+          ['dep_rate', 'Rate'], ['rate_mean', 'Rate'],
+          ['thickness', 'Thickness'], ['thickness_final', 'Thickness'], ['dep_thickness', 'Thickness'],
+          ['dep_duration', 'Deposit duration'] ] },
+      { name: 'Sputter supply', metrics: [
+          ['sputter_power', 'Power'], ['sputter_voltage', 'Voltage'], ['sputter_current', 'Current'],
+          ['spark_count', 'Spark count'], ['sparks', 'Spark count'] ] },
+      { name: 'Substrate', metrics: [
+          ['substrate_temp', 'Substrate temp'], ['dep_substrate_temp', 'Substrate temp (dep)'],
+          ['heater_power', 'Heater power'], ['temp_max', 'Max temp'] ] },
+      { name: 'Gas & vacuum', metrics: [
+          ['ar_flow', 'Ar flow'], ['base_pressure', 'Base pressure'] ] },
+      { name: 'System', metrics: [
+          ['crystal_life', 'Crystal life'], ['xtal_remaining', 'Crystal remaining'],
+          ['crystal_remaining', 'Crystal remaining'], ['total_duration', 'Total duration'] ] },
+    ],
+  };
+
+})();
+
+/* ======================================================================
+ *  6. Machine switching + init
+ * ====================================================================== */
+
+function normalizeMachines(raw) {
+  const list = Array.isArray(raw) ? raw : (raw && raw.machines) || [];
+  return list.map(m => {
+    const id = m.id ?? m.machine ?? m.key;
+    const def = MACHINE_DEFS[id];
+    return {
+      id,
+      name: m.name || m.label || (def && def.name) || String(id),
+      accent: m.accent || m.accent_color || m.color || (def && def.accent) || '#4fd1c5',
+    };
+  }).filter(m => m.id != null);
+}
+
+function fallbackMachines() {
+  return Object.entries(MACHINE_DEFS).map(([id, d]) => ({ id, name: d.name, accent: d.accent }));
+}
+
+function applyMachineTheme() {
+  const m = state.machines.find(x => x.id === state.machine);
+  const def = machineDef();
+  const accent = (m && m.accent) || (def && def.accent) || '#4fd1c5';
+  const rgb = hexToRGB(accent);
+  if (def) { def.accent = accent; def.accentRGB = rgb; }
+  document.documentElement.style.setProperty('--machine-accent', accent);
+  document.documentElement.style.setProperty('--machine-accent-rgb', rgb);
+  document.title = 'Angstrom Log Viewer' + (m ? ' — ' + m.name : '');
+}
+
+const machineToggle = document.getElementById('machineToggle');
+
+function buildMachineToggle() {
+  machineToggle.innerHTML = state.machines.map(m =>
+    `<button data-machine="${esc(m.id)}" role="tab" title="${esc(m.name)}">${esc(m.name)}</button>`).join('');
+  updateMachineToggle();
+}
+
+function updateMachineToggle() {
+  machineToggle.querySelectorAll('button').forEach(b => {
+    const active = b.dataset.machine === state.machine;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+machineToggle.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-machine]');
+  if (btn && btn.dataset.machine !== state.machine) setMachine(btn.dataset.machine);
+});
+
+// hash is the source of truth for bookmarks: #jj / #ta
+window.addEventListener('hashchange', () => {
+  const id = location.hash.slice(1);
+  if (id && id !== state.machine && state.machines.some(x => x.id === id)) setMachine(id);
+});
+
+function setMachine(id) {
+  if (id === state.machine) return;
+  state.machine = id;
+  state.runs = [];
+  state.runId = null;
+  state.pendingZoomSeg = null;
+  state.cmpSelectedIds.clear();
+  state.collapsedGroups.clear();
+  clearCaches();
+  activeChart = null;
+  activeValveChart = null;
+  Object.values(views).forEach(v => { v.innerHTML = ''; });
+  runSelect.innerHTML = '';
+  runSelect.disabled = true;
+  applyMachineTheme();
+  updateMachineToggle();
+  if (location.hash.slice(1) !== id) history.replaceState(null, '', '#' + id);
+  setTab('summary');       // machine switch always resets to Summary
+  loadRuns();
+}
+
+async function loadRuns() {
+  const m = state.machine;
+  runSelect.disabled = false;
+  showLoading(views.summary);
+  let runs;
+  try { runs = await fetchJSON(api('/runs')); }
+  catch (err) {
+    if (state.machine !== m) return;
+    runSelect.disabled = true;
+    runSelect.innerHTML = '';
+    showError(views.summary, err);
+    return;
+  }
+  if (state.machine !== m) return;   // machine changed while loading
+  state.runs = runs;
+  if (!runs.length) {
+    runSelect.disabled = true;
+    runSelect.innerHTML = '';
+    views.summary.innerHTML = '<div class="center-msg">No runs found</div>';
+    return;
+  }
+  runSelect.innerHTML = runs.map(runOptionHTML).join('');
+  state.runId = runs[runs.length - 1].id;   // default: latest
+  runSelect.value = state.runId;
+  render();
+}
+
+async function init() {
+  try {
+    state.machines = normalizeMachines(await fetchJSON('/api/machines'));
+  } catch (err) {
+    state.machines = [];
+  }
+  if (!state.machines.length) state.machines = fallbackMachines();
+  if (!state.machines.length) {
+    views.summary.innerHTML = '<div class="center-msg">No machines available</div>';
+    runSelect.disabled = true;
+    return;
+  }
+  buildMachineToggle();
+
+  const hashId = location.hash.slice(1);
+  const startId = state.machines.some(m => m.id === hashId) ? hashId : state.machines[0].id;
+  state.machine = startId;
+  applyMachineTheme();
+  updateMachineToggle();
+  if (location.hash.slice(1) !== startId) history.replaceState(null, '', '#' + startId);
+  loadRuns();
+}
+
+/* ================= go ================= */
+init();
+</script>
+</body>
+</html>
